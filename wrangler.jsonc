@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cassandra-portal",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [
+    {
+      "binding": "MCP_KEYS",
+      "id": "REPLACE_WITH_TERRAFORM_OUTPUT"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "portal.REDACTED_DOMAIN/*",
+      "zone_name": "REDACTED_DOMAIN"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8791
+  }
+}
