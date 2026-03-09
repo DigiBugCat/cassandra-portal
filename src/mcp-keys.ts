@@ -2,22 +2,48 @@ import { Hono } from "hono";
 
 interface McpKeyMeta {
   name: string;
+  service: string;
   created_at: string;
   created_by: string;
 }
 
+// Registry of available MCP services (add new services here)
+const MCP_SERVICES = [
+  {
+    id: "yt-mcp",
+    name: "yt-mcp",
+    description: "Video & Audio Transcription",
+    status: "active" as const,
+  },
+];
+
 const app = new Hono<{ Bindings: Env }>();
 
+// List available MCP services
+app.get("/api/mcp-services", (c) => {
+  return c.json(MCP_SERVICES);
+});
+
+// List keys, optionally filtered by service
 app.get("/api/mcp-keys", async (c) => {
+  const service = c.req.query("service");
   const list = await c.env.MCP_KEYS.list();
-  const keys: Array<{ key: string; name: string; created_at: string; created_by: string }> = [];
+  const keys: Array<{
+    key: string;
+    name: string;
+    service: string;
+    created_at: string;
+    created_by: string;
+  }> = [];
 
   for (const item of list.keys) {
     const meta = await c.env.MCP_KEYS.get<McpKeyMeta>(item.name, "json");
     if (meta) {
+      if (service && meta.service !== service) continue;
       keys.push({
         key: item.name,
         name: meta.name,
+        service: meta.service,
         created_at: meta.created_at,
         created_by: meta.created_by,
       });
@@ -28,19 +54,29 @@ app.get("/api/mcp-keys", async (c) => {
 });
 
 app.post("/api/mcp-keys", async (c) => {
-  const { name } = await c.req.json<{ name?: string }>();
-  if (!name) return c.json({ error: "name is required" }, 400);
+  const body = await c.req.json<{ name?: string; service?: string }>();
+  if (!body.name) return c.json({ error: "name is required" }, 400);
+  if (!body.service) return c.json({ error: "service is required" }, 400);
+
+  const validService = MCP_SERVICES.find((s) => s.id === body.service);
+  if (!validService) return c.json({ error: "unknown service" }, 400);
 
   const key = `mcp_${randomHex(32)}`;
   const meta: McpKeyMeta = {
-    name,
+    name: body.name,
+    service: body.service,
     created_at: new Date().toISOString(),
     created_by: getUserEmail(c.req.raw),
   };
 
   await c.env.MCP_KEYS.put(key, JSON.stringify(meta));
 
-  return c.json({ key, name: meta.name, created_at: meta.created_at });
+  return c.json({
+    key,
+    name: meta.name,
+    service: meta.service,
+    created_at: meta.created_at,
+  });
 });
 
 app.delete("/api/mcp-keys/:key", async (c) => {

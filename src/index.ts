@@ -96,6 +96,12 @@ body{font-family:'Sora',sans-serif;background:var(--bg-0);color:var(--text-0);mi
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .empty-state{text-align:center;padding:40px;color:var(--text-3);font-size:12.5px}
+.svc-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;cursor:pointer;transition:all .12s;font-size:12px;color:var(--text-2)}
+.svc-item:hover{background:var(--bg-3);color:var(--text-1)}
+.svc-item.active{background:var(--purple-soft);color:var(--purple);font-weight:500}
+.svc-item .svc-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.svc-item .svc-dot.on{background:var(--green)}.svc-item .svc-dot.off{background:var(--text-3)}
+.svc-item .svc-meta{font-size:10px;color:var(--text-3);margin-left:auto}
 </style>
 </head>
 <body>
@@ -142,11 +148,30 @@ body{font-family:'Sora',sans-serif;background:var(--bg-0);color:var(--text-0);mi
 
   <!-- MCP Keys -->
   <div class="page" id="page-mcp-keys">
-    <div class="tokens-bar">
-      <div class="tokens-count" id="mcp-keys-count">Loading...</div>
-      <button class="btn btn-accent" onclick="showCreateModal('mcp')">+ New MCP Key</button>
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:12px;min-height:400px">
+      <!-- Service nav -->
+      <div class="panel" style="padding:0">
+        <div class="panel-header"><span class="panel-title">Services</span></div>
+        <div id="svc-nav" style="padding:8px"></div>
+      </div>
+      <!-- Detail -->
+      <div>
+        <div id="svc-detail-header" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <h2 id="svc-detail-name" style="font-size:16px;font-weight:600;margin-bottom:2px"></h2>
+              <p id="svc-detail-desc" style="font-size:12px;color:var(--text-2);margin-bottom:6px"></p>
+              <span id="svc-detail-status" class="pill active"></span>
+              <span id="svc-detail-url" style="font-size:11px;color:var(--text-3);margin-left:8px"></span>
+            </div>
+            <button class="btn btn-accent" id="svc-new-key-btn" onclick="showCreateModal('mcp')" style="display:none">+ New Key</button>
+          </div>
+        </div>
+        <div id="svc-detail-body">
+          <div class="empty-state" style="padding:80px 20px">Select a service to manage its API keys</div>
+        </div>
+      </div>
     </div>
-    <table class="full-table"><thead><tr><th>Name</th><th>Key</th><th>Created By</th><th>Created</th><th></th></tr></thead><tbody id="mcp-keys-body"><tr><td colspan="5" class="empty-state">Loading...</td></tr></tbody></table>
   </div>
 
   <!-- Monitoring -->
@@ -208,25 +233,68 @@ function renderTokens(tenants){
   document.getElementById('tokens-body').innerHTML=rows.length?rows.join(''):'<tr><td colspan="5" class="empty-state">No runner keys yet. Create one to get started.</td></tr>';
 }
 
-// ── MCP Keys API ──
-function loadMcpKeys(){
-  fetch('/api/mcp-keys').then(function(r){return r.json()}).then(function(keys){
-    if(keys.error)throw new Error(keys.error);
-    renderMcpKeys(keys);
-  }).catch(function(e){
-    document.getElementById('mcp-keys-body').innerHTML='<tr><td colspan="5" class="empty-state">Failed to load: '+e.message+'</td></tr>';
-  });
-}
+// ── MCP Services + Keys ──
+var mcpServices=[];
+var selectedService=null;
+var allMcpKeys=[];
 
 function maskKey(k){if(k.length<=8)return k;return k.slice(0,8)+'...'+k.slice(-4)}
 
-function renderMcpKeys(keys){
-  document.getElementById('dash-mcp-count').textContent=keys.length;
-  document.getElementById('dash-mcp-badge').textContent=keys.length+' total';
-  document.getElementById('dash-mcp-sub').textContent=keys.length+' active';
-  document.getElementById('mcp-keys-count').innerHTML='<strong>'+keys.length+'</strong> MCP keys';
+function loadMcpServices(){
+  fetch('/api/mcp-services').then(function(r){return r.json()}).then(function(svcs){
+    mcpServices=svcs;
+    renderSvcNav();
+    loadMcpKeys();
+  });
+}
+
+function loadMcpKeys(){
+  fetch('/api/mcp-keys').then(function(r){return r.json()}).then(function(keys){
+    if(keys.error)throw new Error(keys.error);
+    allMcpKeys=keys;
+    // Update dashboard counts
+    document.getElementById('dash-mcp-count').textContent=keys.length;
+    document.getElementById('dash-mcp-badge').textContent=keys.length+' total';
+    document.getElementById('dash-mcp-sub').textContent=keys.length+' active';
+    renderSvcNav();
+    if(selectedService)renderSvcDetail(selectedService);
+  });
+}
+
+function renderSvcNav(){
+  var html=mcpServices.map(function(s){
+    var count=allMcpKeys.filter(function(k){return k.service===s.id}).length;
+    var cls='svc-item'+(selectedService===s.id?' active':'');
+    var dotCls='svc-dot '+(s.status==='active'?'on':'off');
+    return '<div class="'+cls+'" onclick="selectService(\\''+s.id+'\\')">'
+      +'<span class="'+dotCls+'"></span>'
+      +'<span>'+esc(s.name)+'</span>'
+      +'<span class="svc-meta">'+count+'</span>'
+      +'</div>';
+  }).join('');
+  document.getElementById('svc-nav').innerHTML=html||'<div class="empty-state" style="padding:20px">No services</div>';
+}
+
+function selectService(id){
+  selectedService=id;
+  renderSvcNav();
+  renderSvcDetail(id);
+}
+
+function renderSvcDetail(id){
+  var svc=mcpServices.find(function(s){return s.id===id});
+  if(!svc)return;
+  var keys=allMcpKeys.filter(function(k){return k.service===id});
+  document.getElementById('svc-detail-name').textContent=svc.name;
+  document.getElementById('svc-detail-desc').textContent=svc.description;
+  document.getElementById('svc-detail-status').innerHTML='<span style="margin-right:4px">'+(svc.status==='active'?'&#x25CF;':'&#x25CB;')+'</span>'+(svc.status==='active'?'Active':'Planned');
+  document.getElementById('svc-detail-status').className='pill '+(svc.status==='active'?'active':'');
+  document.getElementById('svc-detail-url').textContent=svc.status==='active'?svc.id+'.'+DOMAIN+'/mcp':'';
+  document.getElementById('svc-new-key-btn').style.display=svc.status==='active'?'inline-flex':'none';
   var rows=keys.map(function(k){return '<tr><td style="font-weight:500">'+esc(k.name)+'</td><td><code class="mono">'+esc(maskKey(k.key))+'</code></td><td style="color:var(--text-3)">'+esc(k.created_by)+'</td><td style="color:var(--text-3)">'+fmtDate(k.created_at)+'</td><td style="text-align:right"><button class="btn-red-sm" onclick="deleteMcpKey(\\''+esc(k.key)+'\\',\\''+esc(k.name)+'\\')">Delete</button></td></tr>'});
-  document.getElementById('mcp-keys-body').innerHTML=rows.length?rows.join(''):'<tr><td colspan="5" class="empty-state">No MCP keys yet. Create one to get started.</td></tr>';
+  document.getElementById('svc-detail-body').innerHTML=keys.length
+    ?'<table class="full-table"><thead><tr><th>Name</th><th>Key</th><th>Created By</th><th>Created</th><th></th></tr></thead><tbody>'+rows.join('')+'</tbody></table>'
+    :'<div class="empty-state" style="padding:60px 20px">No keys for '+esc(svc.name)+' yet. Create one to get started.</div>';
 }
 
 // ── Helpers ──
@@ -257,8 +325,9 @@ function showCreateModal(mode){
     document.getElementById('modal-create-desc').textContent='Create a new tenant with an API key for runner access.';
     document.getElementById('key-name').placeholder='e.g. andrew-laptop, ci-pipeline';
   }else{
-    document.getElementById('modal-create-title').textContent='New MCP Key';
-    document.getElementById('modal-create-desc').textContent='Create an API key for MCP service access (yt-mcp, etc).';
+    var svcName=selectedService||'mcp';
+    document.getElementById('modal-create-title').textContent='New '+svcName+' Key';
+    document.getElementById('modal-create-desc').textContent='Create an API key scoped to '+svcName+'.';
     document.getElementById('key-name').placeholder='e.g. obsidian-client, partner-acme';
   }
   document.getElementById('key-name').focus();
@@ -273,7 +342,8 @@ function createKey(){
   var btn=document.getElementById('create-btn');
   btn.innerHTML='<span class="spinner"></span> Creating...';btn.disabled=true;
   var url=createMode==='runner'?'/api/tokens':'/api/mcp-keys';
-  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(data){
+  var body=createMode==='runner'?{name:name}:{name:name,service:selectedService};
+  fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(data){
     if(data.error)throw new Error(data.error);
     document.getElementById('new-api-key').textContent=data.api_key||data.key;
     if(createMode==='runner'){
@@ -281,9 +351,10 @@ function createKey(){
       document.getElementById('new-tenant-id').textContent=data.id;
       document.getElementById('result-cli-row').style.display='none';
     }else{
+      var svc=data.service||selectedService;
       document.getElementById('result-tenant-row').style.display='none';
       document.getElementById('result-cli-row').style.display='block';
-      document.getElementById('cli-command').textContent='claude mcp add --transport http -H "Authorization: Bearer '+data.key+'" yt-mcp https://yt-mcp.'+DOMAIN+'/mcp';
+      document.getElementById('cli-command').textContent='claude mcp add --transport http -H "Authorization: Bearer '+data.key+'" '+svc+' https://'+svc+'.'+DOMAIN+'/mcp';
     }
     document.getElementById('modal-create').style.display='none';
     document.getElementById('modal-result').style.display='block';
@@ -298,7 +369,7 @@ function deleteTenant(id,name){
 
 function deleteMcpKey(fullKey,name){
   if(!confirm('Delete MCP key "'+name+'"? This cannot be undone.'))return;
-  fetch('/api/mcp-keys/'+fullKey,{method:'DELETE'}).then(function(){loadAll()}).catch(function(e){alert('Failed: '+e.message)});
+  fetch('/api/mcp-keys/'+fullKey,{method:'DELETE'}).then(function(){loadMcpKeys()}).catch(function(e){alert('Failed: '+e.message)});
 }
 
 // ── Domain-aware links ──
@@ -306,7 +377,7 @@ var DOMAIN='__DOMAIN__';
 if(DOMAIN){document.getElementById('dash-endpoint').textContent='claude-runner.'+DOMAIN;document.getElementById('link-grafana').href='https://grafana.'+DOMAIN;document.getElementById('link-argocd').href='https://argocd.'+DOMAIN}
 
 // ── Load all ──
-function loadAll(){loadTokens();loadMcpKeys()}
+function loadAll(){loadTokens();loadMcpServices()}
 loadAll();
 </script>
 </body>
