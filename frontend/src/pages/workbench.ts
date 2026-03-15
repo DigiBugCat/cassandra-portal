@@ -70,7 +70,7 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
       </div>
       <div class="flex items-baseline gap-2">
         <span class="text-text-3 font-medium shrink-0">3.</span>
-        <span>Add header: <code class="font-mono text-accent bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]">Authorization: Bearer &lt;your-key&gt;</code></span>
+        <span>Sign in when prompted — authentication is handled automatically via OAuth</span>
       </div>
     </div>
   `;
@@ -272,73 +272,75 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
     meta = await api.credentials.get(project.id, service.id);
   } catch { /* no credentials */ }
 
-  // Explain what config is needed
-  const hasRequired = service.credentialsSchema.some((f) => f.required);
-  const explainerText = hasRequired
-    ? `${service.name} needs the following settings to function. These are shared across all API keys in this project.`
-    : `${service.name} supports optional configuration. These settings are shared across all API keys in this project.`;
-  const explainer = h("div", { className: "text-xs text-text-2 mb-4 leading-relaxed" }, explainerText);
-  container.appendChild(explainer);
-
-  // List required fields
-  const fieldsList = h("div", { className: "mb-4" });
-  for (const f of service.credentialsSchema) {
-    const fieldRow = h("div", { className: "flex items-center gap-2 px-3 py-2 bg-surface-2 rounded-md mb-1" });
-
-    const indicator = h("span", {
-      className: `w-1.5 h-1.5 rounded-full shrink-0 ${meta.has_credentials ? "bg-ok" : (f.required ? "bg-warn" : "bg-text-3")}`,
-    });
-    fieldRow.appendChild(indicator);
-
-    fieldRow.appendChild(h("span", { className: "text-[12px] text-text-1 font-medium" }, f.label));
-
-    if (f.required) {
-      fieldRow.appendChild(h("span", { className: "text-[9.5px] text-warn bg-warn-soft px-1.5 py-px rounded-full" }, "Required"));
-    } else {
-      fieldRow.appendChild(h("span", { className: "text-[9.5px] text-text-3 bg-surface-3 px-1.5 py-px rounded-full" }, "Optional"));
-    }
-
-    fieldsList.appendChild(fieldRow);
-  }
-  container.appendChild(fieldsList);
-
-  // Status card
-  const card = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-4" });
-
+  // Status line
   if (meta.has_credentials) {
-    card.appendChild(h("div", { className: "flex items-center gap-2 mb-2" },
+    const statusLine = h("div", { className: "flex items-center gap-2 mb-4" },
       pill("Configured", "ok"),
       h("span", { className: "text-[11px] text-text-3" }, `Updated ${fmtDate(meta.updated_at)} by ${meta.updated_by || "unknown"}`),
-    ));
+    );
+    container.appendChild(statusLine);
+  }
 
-    const actions = h("div", { className: "flex gap-2 mt-3" });
-    actions.appendChild(btn("Update Configuration", {
-      variant: "outline",
-      onClick: () => showConfigFormModal(container, project, service),
-    }));
+  // Explainer
+  const hasRequired = service.credentialsSchema.some((f) => f.required);
+  const explainerText = hasRequired
+    ? `These settings are shared across all API keys in this project.`
+    : `Optional settings shared across all API keys in this project.`;
+  container.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, explainerText));
+
+  // Inline form
+  const form = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
+  const inputs: { key: string; input: HTMLInputElement | HTMLTextAreaElement }[] = [];
+
+  for (const f of service.credentialsSchema) {
+    const inp = f.type === "textarea"
+      ? textarea({ placeholder: meta.has_credentials ? "\u2022\u2022\u2022\u2022\u2022\u2022 (leave blank to keep current)" : f.label, rows: 3 })
+      : input({ placeholder: meta.has_credentials ? "\u2022\u2022\u2022\u2022\u2022\u2022 (leave blank to keep current)" : f.label, type: "password" });
+    inputs.push({ key: f.key, input: inp });
+
+    const label = f.label + (f.required ? "" : " (optional)");
+    form.appendChild(field(label, inp, f.hint));
+  }
+
+  // Actions
+  const actions = h("div", { className: "flex items-center gap-2 pt-1" });
+
+  const saveBtn = btn("Save", {
+    onClick: async () => {
+      const creds: Record<string, string> = {};
+      for (const { key, input: inp } of inputs) {
+        const val = inp.value.trim();
+        if (val) creds[key] = val;
+      }
+      if (Object.keys(creds).length === 0 && !meta.has_credentials) return;
+      try {
+        await api.credentials.set(project.id, service.id, creds);
+        const root = container.closest("#main-content")! as HTMLElement;
+        import("../main").then(({ getState }) => {
+          const { currentProject, currentService } = getState();
+          if (currentProject && currentService) renderServiceDetail(root, currentProject, currentService);
+        });
+      } catch (e) {
+        alert((e as Error).message);
+      }
+    },
+  });
+  actions.appendChild(saveBtn);
+
+  if (meta.has_credentials) {
     actions.appendChild(btn("Remove", {
       variant: "danger",
       onClick: async () => {
-        if (!confirm("Remove configuration? API keys in this project will lose access to this service.")) return;
+        if (!confirm("Remove configuration? API keys will lose access to this service.")) return;
         await api.credentials.remove(project.id, service.id);
         const root = container.closest("#main-content")! as HTMLElement;
         renderServiceDetail(root, project, service);
       },
     }));
-    card.appendChild(actions);
-  } else {
-    card.appendChild(h("div", { className: "flex items-center gap-2 mb-2" },
-      h("span", { className: "text-[9.5px] font-medium text-warn bg-warn-soft px-2 py-0.5 rounded-full" }, "Not configured"),
-    ));
-    card.appendChild(h("p", { className: "text-xs text-text-2 mb-3" },
-      `Set up configuration to enable ${service.name} for API keys in this project.`,
-    ));
-    card.appendChild(btn("Set Up Configuration", {
-      onClick: () => showConfigFormModal(container, project, service),
-    }));
   }
 
-  container.appendChild(card);
+  form.appendChild(actions);
+  container.appendChild(form);
 }
 
 // ── Modals ──
@@ -405,45 +407,3 @@ async function showKeyCreatedModal(container: HTMLElement, created: api.CreatedK
   showModal(modalCard({ title: "Key Created", body, footer }));
 }
 
-function showConfigFormModal(container: HTMLElement, project: api.Project, service: api.McpService) {
-  const body = h("div", {});
-  const inputs: { key: string; input: HTMLInputElement | HTMLTextAreaElement }[] = [];
-
-  for (const f of service.credentialsSchema || []) {
-    const inp = f.type === "textarea"
-      ? textarea({ placeholder: f.label, rows: 4 })
-      : input({ placeholder: f.label, type: "password" });
-    inputs.push({ key: f.key, input: inp });
-    body.appendChild(field(f.label + (f.required ? " *" : ""), inp, f.hint));
-  }
-
-  const footer = h("div", { className: "flex justify-end gap-2 mt-1" });
-  footer.appendChild(btn("Cancel", { variant: "outline", onClick: hideModal }));
-  footer.appendChild(btn("Save", {
-    onClick: async () => {
-      const creds: Record<string, string> = {};
-      for (const { key, input: inp } of inputs) {
-        const val = inp.value.trim();
-        if (val) creds[key] = val;
-      }
-      try {
-        await api.credentials.set(project.id, service.id, creds);
-        hideModal();
-        const root = container.closest("#main-content")! as HTMLElement;
-        import("../main").then(({ getState }) => {
-          const { currentProject, currentService } = getState();
-          if (currentProject && currentService) renderServiceDetail(root, currentProject, currentService);
-        });
-      } catch (e) {
-        alert((e as Error).message);
-      }
-    },
-  }));
-
-  showModal(modalCard({
-    title: `${service.name} Configuration`,
-    description: `Configure settings for ${project.name}. Shared across all API keys in this project.`,
-    body,
-    footer,
-  }));
-}
