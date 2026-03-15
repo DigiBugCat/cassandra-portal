@@ -9,6 +9,8 @@ declare namespace Cloudflare {
     VM_PUSH_URL: string;
     VM_PUSH_CLIENT_ID: string;
     VM_PUSH_CLIENT_SECRET: string;
+    ACL_URL?: string;
+    ACL_SECRET?: string;
   }
 }
 
