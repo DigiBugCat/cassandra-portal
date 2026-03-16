@@ -84,9 +84,34 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
   `;
   setup.appendChild(aiSteps);
 
+  // Generic MCP client (any HTTP client)
+  const genericLabel = h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5 mt-4" }, "Other MCP Clients (HTTP)");
+  setup.appendChild(genericLabel);
+
+  const mcpUrl = `https://${service.id}.${domain}/mcp`;
+  const genericSteps = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 text-[11.5px] text-text-1 leading-relaxed" });
+  genericSteps.innerHTML = `
+    <div class="flex flex-col gap-1.5">
+      <div class="flex items-baseline gap-2">
+        <span class="text-text-3 font-medium shrink-0">URL</span>
+        <code class="font-mono text-accent bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]">${mcpUrl}</code>
+        <button class="text-[10px] text-text-3 hover:text-accent transition-colors" id="copy-generic-url">copy</button>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-text-3 font-medium shrink-0">Header</span>
+        <code class="font-mono text-text-1 bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]">Authorization: Bearer &lt;your-key&gt;</code>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span class="text-text-3 font-medium shrink-0">Transport</span>
+        <span>HTTP with SSE (Streamable HTTP)</span>
+      </div>
+    </div>
+  `;
+  setup.appendChild(genericSteps);
+
   container.appendChild(setup);
 
-  // Bind copy button for AI URL
+  // Bind copy buttons for AI URL and generic URL
   setTimeout(() => {
     const copyAiBtn = document.getElementById("copy-ai-url");
     if (copyAiBtn) {
@@ -94,6 +119,14 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
         navigator.clipboard.writeText(aiUrl);
         copyAiBtn.textContent = "copied!";
         setTimeout(() => { copyAiBtn.textContent = "copy"; }, 2000);
+      });
+    }
+    const copyGenericBtn = document.getElementById("copy-generic-url");
+    if (copyGenericBtn) {
+      copyGenericBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(mcpUrl);
+        copyGenericBtn.textContent = "copied!";
+        setTimeout(() => { copyGenericBtn.textContent = "copy"; }, 2000);
       });
     }
   }, 0);
