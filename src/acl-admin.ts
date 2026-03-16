@@ -3,6 +3,22 @@ import { getUserEmail } from "./auth";
 
 const app = new Hono<{ Bindings: Env }>();
 
+/**
+ * Fetch the ACL worker via Service Binding (preferred) or fallback to ACL_URL.
+ * Service Binding avoids the same-zone Worker fetch restriction (CF error 1014).
+ */
+function aclFetch(env: Env, path: string, init: RequestInit): Promise<Response> {
+  if (env.ACL_SERVICE) {
+    // Service Binding — direct Worker-to-Worker call, no network hop
+    return env.ACL_SERVICE.fetch(new Request(`https://acl-internal${path}`, init));
+  }
+  // Fallback: external fetch (only works cross-zone or via workers.dev)
+  if (env.ACL_URL) {
+    return fetch(`${env.ACL_URL}${path}`, init);
+  }
+  return Promise.resolve(Response.json({ error: "ACL service not configured" }, { status: 501 }));
+}
+
 /** Proxy a request to the ACL worker, adding auth headers. */
 async function proxyToAcl(
   c: { env: Env; req: { raw: Request } },
@@ -10,9 +26,8 @@ async function proxyToAcl(
   path: string,
   body?: unknown,
 ): Promise<Response> {
-  const aclUrl = c.env.ACL_URL;
   const aclSecret = c.env.ACL_SECRET;
-  if (!aclUrl || !aclSecret) {
+  if (!aclSecret || (!c.env.ACL_SERVICE && !c.env.ACL_URL)) {
     return Response.json({ error: "ACL service not configured" }, { status: 501 });
   }
 
@@ -29,7 +44,7 @@ async function proxyToAcl(
     headers["Content-Type"] = "application/json";
   }
 
-  const resp = await fetch(`${aclUrl}${path}`, {
+  const resp = await aclFetch(c.env, path, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,

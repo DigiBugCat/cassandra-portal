@@ -22,6 +22,12 @@
       "database_id": "<your-d1-database-id>"
     }
   ],
+  "services": [
+    {
+      "binding": "ACL_SERVICE",
+      "service": "cassandra-acl"
+    }
+  ],
   "routes": [
     {
       "pattern": "<subdomain>.<domain>/*",

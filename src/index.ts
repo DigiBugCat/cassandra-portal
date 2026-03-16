@@ -46,16 +46,24 @@ app.get("/api/acl/:service/tools", async (c) => {
 
   const tools = toolsParam.split(",");
 
-  if (!c.env.ACL_URL || !c.env.ACL_SECRET) {
+  if (!c.env.ACL_SECRET || (!c.env.ACL_SERVICE && !c.env.ACL_URL)) {
     // No ACL configured — all tools allowed
     return c.json(Object.fromEntries(tools.map((t) => [t, { allowed: true }])));
   }
+
+  // Use Service Binding (preferred) or fallback to ACL_URL
+  const aclFetch = (path: string, init: RequestInit) => {
+    if (c.env.ACL_SERVICE) {
+      return c.env.ACL_SERVICE.fetch(new Request(`https://acl-internal${path}`, init));
+    }
+    return fetch(`${c.env.ACL_URL}${path}`, init);
+  };
 
   const results: Record<string, { allowed: boolean; reason?: string }> = {};
   await Promise.all(
     tools.map(async (tool) => {
       try {
-        const resp = await fetch(`${c.env.ACL_URL}/check`, {
+        const resp = await aclFetch("/check", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -87,26 +95,42 @@ app.get("/api/debug/acl", async (c) => {
     step1_email: email || "(empty)",
     step2_acl_url: c.env.ACL_URL ? "set" : "NOT SET",
     step3_acl_secret: c.env.ACL_SECRET ? "set" : "NOT SET",
-    step4_cf_headers: {
+    step4_acl_service_binding: c.env.ACL_SERVICE ? "set" : "NOT SET",
+    step5_cf_headers: {
       "Cf-Access-Authenticated-User-Email": c.req.header("Cf-Access-Authenticated-User-Email") || "(missing)",
       "Cf-Access-Jwt-Assertion": c.req.header("Cf-Access-Jwt-Assertion") ? "(present)" : "(missing)",
       "Cookie_has_CF_Authorization": (c.req.header("Cookie") || "").includes("CF_Authorization"),
     },
   };
 
-  // Try calling ACL whoami
-  if (email && c.env.ACL_URL && c.env.ACL_SECRET) {
+  // Try calling ACL whoami via Service Binding (preferred) or ACL_URL fallback
+  if (email && c.env.ACL_SECRET) {
     try {
-      const resp = await fetch(`${c.env.ACL_URL}/acl/whoami`, {
-        headers: {
-          "X-ACL-Secret": c.env.ACL_SECRET,
-          "X-Admin-Email": email,
-        },
-      });
-      debug.step5_acl_whoami_status = resp.status;
-      debug.step5_acl_whoami_body = await resp.json();
+      let resp: Response;
+      if (c.env.ACL_SERVICE) {
+        debug.step6_method = "service_binding";
+        resp = await c.env.ACL_SERVICE.fetch(new Request("https://acl-internal/acl/whoami", {
+          headers: {
+            "X-ACL-Secret": c.env.ACL_SECRET,
+            "X-Admin-Email": email,
+          },
+        }));
+      } else if (c.env.ACL_URL) {
+        debug.step6_method = "acl_url_fetch";
+        resp = await fetch(`${c.env.ACL_URL}/acl/whoami`, {
+          headers: {
+            "X-ACL-Secret": c.env.ACL_SECRET,
+            "X-Admin-Email": email,
+          },
+        });
+      } else {
+        debug.step6_method = "none";
+        resp = new Response("no acl", { status: 501 });
+      }
+      debug.step6_acl_whoami_status = resp.status;
+      debug.step6_acl_whoami_body = await resp.json().catch(() => resp.statusText);
     } catch (e) {
-      debug.step5_acl_whoami_error = (e as Error).message;
+      debug.step6_acl_whoami_error = (e as Error).message;
     }
   }
 
