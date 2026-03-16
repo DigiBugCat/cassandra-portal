@@ -221,12 +221,14 @@ async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
 
   // Add vault form — dropdown populated from Obsidian API
   if (config.auth_token.configured) {
+    const inputH = "h-[38px]"; // explicit height so select and input match exactly
+
     const addForm = h("div", { className: "flex items-end gap-2" });
 
     const vaultCol = h("div", { className: "flex-1 min-w-0" });
     vaultCol.appendChild(h("div", { className: "text-[10.5px] font-medium text-text-3 uppercase tracking-wider mb-1.5" }, "Vault"));
     const vaultSelect = document.createElement("select");
-    vaultSelect.className = "w-full px-3 py-2 bg-surface-3 border border-edge rounded-md text-[12.5px] text-text-0 outline-hidden focus:border-accent font-[family-name:var(--font-sans)]";
+    vaultSelect.className = `w-full ${inputH} px-3 bg-surface-3 border border-edge rounded-md text-[12.5px] text-text-0 outline-hidden focus:border-accent font-[family-name:var(--font-sans)] appearance-none`;
     vaultSelect.appendChild(h("option", { value: "" }, "Loading vaults..."));
     vaultSelect.disabled = true;
     vaultCol.appendChild(vaultSelect);
@@ -254,6 +256,7 @@ async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
     const passCol = h("div", { className: "flex-1 min-w-0" });
     passCol.appendChild(h("div", { className: "text-[10.5px] font-medium text-text-3 uppercase tracking-wider mb-1.5" }, "E2EE Password"));
     const vaultPassInput = input({ placeholder: "E2EE password", type: "password" });
+    vaultPassInput.className += ` ${inputH}`;
     passCol.appendChild(vaultPassInput);
     addForm.appendChild(passCol);
     addForm.appendChild(
