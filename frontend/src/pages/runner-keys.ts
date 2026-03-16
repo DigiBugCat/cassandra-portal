@@ -144,7 +144,12 @@ export async function renderRunnerDetail(root: HTMLElement) {
 
 function showCreateRunnerModal(root: HTMLElement) {
   const nameInput = input({ placeholder: "e.g. andrew-laptop, ci-pipeline" });
-  const body = field("Tenant Name", nameInput);
+  const maxSessionsInput = input({ placeholder: "5", type: "number" });
+  maxSessionsInput.value = "5";
+
+  const body = h("div", {});
+  body.appendChild(field("Tenant Name", nameInput));
+  body.appendChild(field("Max Sessions", maxSessionsInput, "Maximum concurrent sessions for this tenant"));
 
   const footer = h("div", { className: "flex justify-end gap-2 mt-1" });
   footer.appendChild(btn("Cancel", { variant: "outline", onClick: hideModal }));
@@ -155,26 +160,26 @@ function showCreateRunnerModal(root: HTMLElement) {
       const created = await api.runnerTokens.create(name);
       hideModal();
 
-      // Show result
+      // Show result — Tenant ID first, then API Key
       const resultBody = h("div", {});
       const warn = h("div", { className: "bg-warn-soft border border-warn/12 rounded-md px-3 py-2.5 text-[11.5px] text-warn mb-4" });
       warn.textContent = "Copy now \u2014 the key won\u2019t be shown again.";
       resultBody.appendChild(warn);
 
+      // Tenant ID
+      const idBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11.5px] text-text-1 break-all leading-relaxed mb-3" });
+      idBox.appendChild(h("span", { className: "font-sans text-[9.5px] text-text-3 uppercase tracking-wider block mb-1" }, "Tenant ID"));
+      idBox.appendChild(h("span", {}, created.id));
+      resultBody.appendChild(idBox);
+
       // API Key
-      const keyBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11.5px] text-accent break-all leading-relaxed relative mb-3" });
+      const keyBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11.5px] text-accent break-all leading-relaxed relative" });
       keyBox.appendChild(h("span", { className: "font-sans text-[9.5px] text-text-3 uppercase tracking-wider block mb-1" }, "API Key"));
       keyBox.appendChild(h("span", {}, created.api_key || ""));
       const copyBtn = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(created.api_key || "", copyBtn) });
       copyBtn.className += " absolute top-2.5 right-2.5";
       keyBox.appendChild(copyBtn);
       resultBody.appendChild(keyBox);
-
-      // Tenant ID
-      const idBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11.5px] text-text-1 break-all leading-relaxed" });
-      idBox.appendChild(h("span", { className: "font-sans text-[9.5px] text-text-3 uppercase tracking-wider block mb-1" }, "Tenant ID"));
-      idBox.appendChild(h("span", {}, created.id));
-      resultBody.appendChild(idBox);
 
       const resultFooter = h("div", { className: "flex justify-end mt-2" });
       resultFooter.appendChild(btn("Done", { onClick: () => { hideModal(); renderRunnerDetail(root); } }));
