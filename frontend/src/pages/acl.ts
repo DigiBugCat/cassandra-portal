@@ -13,37 +13,34 @@ let cachedServices: api.McpService[] = [];
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saveInFlight = false;
 let pendingSave: (() => Promise<void>) | null = null;
+let pendingRoot: HTMLElement | null = null;
 
-function debouncedSave(saveFn: () => Promise<void>, indicator?: HTMLElement | null) {
+function debouncedSave(saveFn: () => Promise<void>, root: HTMLElement) {
   pendingSave = saveFn;
+  pendingRoot = root;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    if (saveInFlight) return; // will be picked up after current save
-    await flushSave(indicator);
+    if (saveInFlight) return;
+    await flushSave();
   }, 400);
 }
 
-async function flushSave(indicator?: HTMLElement | null) {
+async function flushSave() {
   while (pendingSave) {
     const fn = pendingSave;
+    const root = pendingRoot;
     pendingSave = null;
     saveInFlight = true;
     try {
       await fn();
-      if (indicator) showSaved(indicator);
     } catch { /* silent */ }
     saveInFlight = false;
+    // Re-render to update row summaries (preserves expandedId)
+    if (root) renderAclPage(root);
   }
 }
 
-function showSaved(el: HTMLElement) {
-  // Remove any existing indicator first
-  el.querySelectorAll(".saved-flash").forEach(e => e.remove());
-  const indicator = h("span", { className: "saved-flash text-[10px] text-ok ml-2" }, "Saved");
-  el.appendChild(indicator);
-  setTimeout(() => indicator.remove(), 1500);
-}
 
 export async function renderAclPage(root: HTMLElement) {
   root.innerHTML = "";
@@ -140,15 +137,14 @@ async function renderUsersTab(container: HTMLElement, root: HTMLElement) {
 }
 
 /** Auto-save helper for users: reads current form state and saves. */
-function autoSaveUser(_root: HTMLElement, email: string, inner: HTMLElement) {
-  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+function autoSaveUser(root: HTMLElement, email: string, inner: HTMLElement) {
   debouncedSave(async () => {
     const role = (inner.querySelector("#acl-role-select") as HTMLSelectElement).value as "admin" | "user";
     const groups = getSelectedChips("acl-groups");
     const userData: api.AclUserEntry = { role };
     if (groups.length > 0) userData.groups = groups;
     await api.aclAdmin.users.upsert(email, userData);
-  }, indicator);
+  }, root);
 }
 
 function buildUserEditPanel(root: HTMLElement, email: string, existing: api.AclUserEntry, groupNames: string[]): HTMLElement {
@@ -185,7 +181,7 @@ function buildUserEditPanel(root: HTMLElement, email: string, existing: api.AclU
     },
   }));
   actions.appendChild(h("div", { className: "flex-1" }));
-  actions.appendChild(h("span", { className: "save-indicator text-[10px] text-text-3" }, "Changes save automatically"));
+  actions.appendChild(h("span", { className: "text-[10px] text-text-3" }, "Auto-saved"));
   inner.appendChild(actions);
 
   panel.appendChild(inner);
@@ -303,12 +299,11 @@ function collectGroupServices(inner: HTMLElement): api.AclGroupEntry["services"]
   return services;
 }
 
-function autoSaveGroup(_root: HTMLElement, name: string, inner: HTMLElement) {
-  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+function autoSaveGroup(root: HTMLElement, name: string, inner: HTMLElement) {
   debouncedSave(async () => {
     const services = collectGroupServices(inner);
     await api.aclAdmin.groups.upsert(name, { services });
-  }, indicator);
+  }, root);
 }
 
 function buildGroupEditPanel(root: HTMLElement, name: string, existing: api.AclGroupEntry): HTMLElement {
@@ -332,7 +327,7 @@ function buildGroupEditPanel(root: HTMLElement, name: string, existing: api.AclG
     },
   }));
   actions.appendChild(h("div", { className: "flex-1" }));
-  actions.appendChild(h("span", { className: "save-indicator text-[10px] text-text-3" }, "Changes save automatically"));
+  actions.appendChild(h("span", { className: "text-[10px] text-text-3" }, "Auto-saved"));
   inner.appendChild(actions);
 
   panel.appendChild(inner);
@@ -464,12 +459,11 @@ async function renderDomainsTab(container: HTMLElement, root: HTMLElement) {
   }
 }
 
-function autoSaveDomain(_root: HTMLElement, domain: string, inner: HTMLElement) {
-  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+function autoSaveDomain(root: HTMLElement, domain: string) {
   debouncedSave(async () => {
     const groups = getSelectedChips("acl-domain-groups");
     await api.aclAdmin.domains.upsert(domain, { groups });
-  }, indicator);
+  }, root);
 }
 
 function buildDomainEditPanel(root: HTMLElement, domain: string, existing: api.AclDomainEntry, groupNames: string[]): HTMLElement {
@@ -477,7 +471,7 @@ function buildDomainEditPanel(root: HTMLElement, domain: string, existing: api.A
   const inner = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-4" });
 
   inner.appendChild(fieldBlock("Groups",
-    buildChipSelect(groupNames, existing.groups || [], "acl-domain-groups", () => autoSaveDomain(root, domain, inner)),
+    buildChipSelect(groupNames, existing.groups || [], "acl-domain-groups", () => autoSaveDomain(root, domain)),
     "All users with this email domain get assigned to selected groups"));
 
   const actions = h("div", { className: "flex items-center gap-2 pt-3 mt-3 border-t border-edge" });
@@ -491,7 +485,7 @@ function buildDomainEditPanel(root: HTMLElement, domain: string, existing: api.A
     },
   }));
   actions.appendChild(h("div", { className: "flex-1" }));
-  actions.appendChild(h("span", { className: "save-indicator text-[10px] text-text-3" }, "Changes save automatically"));
+  actions.appendChild(h("span", { className: "text-[10px] text-text-3" }, "Auto-saved"));
   inner.appendChild(actions);
 
   panel.appendChild(inner);
