@@ -145,7 +145,27 @@ export const keys = {
     request<{ key: string; name: string }>(`/api/projects/${projectId}/services/${serviceId}/keys/${keyId}/rotate`, { method: "POST" }),
 };
 
-// ── Runner tokens (legacy, separate from workbench) ──
+// ── Runner config (Obsidian credentials) ──
+
+export interface RunnerConfigMeta {
+  has_credentials: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  fields: { key: string; label: string }[];
+}
+
+export const runnerConfig = {
+  get: () => request<RunnerConfigMeta>("/api/runner/config"),
+  set: (creds: Record<string, string>) =>
+    request("/api/runner/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(creds),
+    }),
+  remove: () => request("/api/runner/config", { method: "DELETE" }),
+};
+
+// ── Runner tokens (tenant keys) ──
 
 export interface RunnerToken {
   id: string;

@@ -8,10 +8,10 @@ export async function renderRunnerDetail(root: HTMLElement) {
 
   // ── Header ──
   const header = h("div", { className: "mb-5" });
-  header.appendChild(h("h1", { className: "text-xl font-semibold mb-1" }, "Claude Code Runner"));
+  header.appendChild(h("h1", { className: "text-xl font-semibold mb-1" }, "Agent Runner"));
   const meta = h("div", { className: "flex items-center gap-3 text-xs text-text-2" });
   meta.appendChild(pill("Active", "ok"));
-  meta.appendChild(h("span", {}, "Claude Code Runner — isolated sessions in k8s pods"));
+  meta.appendChild(h("span", {}, "Claude Code Agent Runner — isolated sessions in k8s pods"));
   header.appendChild(meta);
 
   api.getDomain().then((domain) => {
@@ -158,7 +158,86 @@ export async function renderRunnerDetail(root: HTMLElement) {
   keysSection.appendChild(table);
 
   container.appendChild(keysSection);
+
+  // ── Configuration (Obsidian Vault Sync) ──
+  await renderRunnerConfig(container, root);
+
   root.appendChild(container);
+}
+
+async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
+  const section = h("div", { className: "mt-8" });
+  const sectionTitle = h("div", { className: "text-[11px] font-semibold text-text-3 uppercase tracking-wider mb-3 pb-2 border-b border-edge" }, "Configuration");
+  section.appendChild(sectionTitle);
+
+  let configMeta: api.RunnerConfigMeta;
+  try {
+    configMeta = await api.runnerConfig.get();
+  } catch {
+    section.appendChild(h("div", { className: "text-xs text-text-3" }, "Failed to load configuration."));
+    container.appendChild(section);
+    return;
+  }
+
+  // Status line
+  if (configMeta.has_credentials) {
+    const statusLine = h("div", { className: "flex items-center gap-2 mb-4" },
+      pill("Configured", "ok"),
+      h("span", { className: "text-[11px] text-text-3" }, `Updated ${fmtDate(configMeta.updated_at)} by ${configMeta.updated_by || "unknown"}`),
+    );
+    section.appendChild(statusLine);
+  }
+
+  section.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, "Obsidian vault sync credentials. These are encrypted at rest and fetched per-session by the runner."));
+
+  // Inline form
+  const form = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
+  const inputs: { key: string; input: HTMLInputElement }[] = [];
+
+  for (const f of configMeta.fields) {
+    const inp = input({
+      placeholder: configMeta.has_credentials ? "\u2022\u2022\u2022\u2022\u2022\u2022 (leave blank to keep current)" : f.label,
+      type: "password",
+    });
+    inputs.push({ key: f.key, input: inp });
+    form.appendChild(field(f.label, inp));
+  }
+
+  // Actions
+  const actions = h("div", { className: "flex items-center gap-2 pt-1" });
+
+  const saveBtn = btn("Save", {
+    onClick: async () => {
+      const creds: Record<string, string> = {};
+      for (const { key, input: inp } of inputs) {
+        const val = inp.value.trim();
+        if (val) creds[key] = val;
+      }
+      if (Object.keys(creds).length === 0 && !configMeta.has_credentials) return;
+      try {
+        await api.runnerConfig.set(creds);
+        renderRunnerDetail(root);
+      } catch (e) {
+        alert((e as Error).message);
+      }
+    },
+  });
+  actions.appendChild(saveBtn);
+
+  if (configMeta.has_credentials) {
+    actions.appendChild(btn("Remove", {
+      variant: "danger",
+      onClick: async () => {
+        if (!confirm("Remove Obsidian credentials? Vault sync will stop working.")) return;
+        await api.runnerConfig.remove();
+        renderRunnerDetail(root);
+      },
+    }));
+  }
+
+  form.appendChild(actions);
+  section.appendChild(form);
+  container.appendChild(section);
 }
 
 function showRotatedKeyModal(root: HTMLElement, tenantName: string, newKey: string) {

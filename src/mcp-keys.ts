@@ -71,17 +71,6 @@ export const MCP_SERVICES: McpService[] = [
       { key: "pushover_api_token", label: "Pushover API Token", required: true },
     ],
   },
-  {
-    id: "runner",
-    name: "runner",
-    description: "Claude Code Runner — Obsidian Vault Sync",
-    status: "active",
-    category: "tools",
-    credentialsSchema: [
-      { key: "OBSIDIAN_AUTH_TOKEN", label: "Obsidian Auth Token", required: false },
-      { key: "OBSIDIAN_E2EE_PASSWORD", label: "Obsidian E2EE Password", required: false },
-    ],
-  },
 ];
 
 const app = new Hono<{ Bindings: Env }>();
