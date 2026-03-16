@@ -19,6 +19,23 @@ import { encrypt } from "./db";
  * - ACL sync uses X-ACL-Secret service-to-service auth
  */
 
+const OBSIDIAN_API = "https://api.obsidian.md";
+const SUPPORTED_ENCRYPTION_VERSION = 3;
+
+interface ObsidianVault {
+  id: string;
+  name: string;
+  host: string;
+  salt: string;
+  password?: string;
+  encryption_version: number;
+}
+
+interface ObsidianVaultListResponse {
+  vaults: ObsidianVault[];
+  shared: ObsidianVault[];
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 function aclSync(env: Env, email: string, service: string, body: Record<string, string> | null) {
@@ -110,6 +127,49 @@ app.delete("/api/runner/config/auth", async (c) => {
   c.executionCtx.waitUntil(aclSync(c.env, email, "runner", null) ?? Promise.resolve());
 
   return c.json({ ok: true });
+});
+
+// ── List remote vaults (queries Obsidian API with the stored auth token) ──
+
+app.get("/api/runner/config/vaults", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  // Get the stored auth token (decrypt it)
+  const row = await c.env.PORTAL_DB
+    .prepare("SELECT credentials_encrypted FROM runner_config WHERE email = ?")
+    .bind(email)
+    .first<{ credentials_encrypted: string }>();
+
+  if (!row) return c.json({ error: "auth token not configured — set it first" }, 400);
+
+  const { decrypt } = await import("./db");
+  const creds = JSON.parse(await decrypt(row.credentials_encrypted, c.env.CREDENTIALS_KEY)) as Record<string, string>;
+  const token = creds.OBSIDIAN_AUTH_TOKEN;
+  if (!token) return c.json({ error: "auth token not found in stored credentials" }, 400);
+
+  try {
+    const res = await fetch(`${OBSIDIAN_API}/vault/list`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, supported_encryption_version: SUPPORTED_ENCRYPTION_VERSION }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      return c.json({ error: (body as { error?: string }).error || `Obsidian API returned ${res.status}` }, 502);
+    }
+
+    const data = await res.json() as ObsidianVaultListResponse;
+    const vaults = [...(data.vaults || []), ...(data.shared || [])].map((v) => ({
+      id: v.id,
+      name: v.name,
+    }));
+
+    return c.json({ vaults });
+  } catch (err) {
+    return c.json({ error: `Failed to fetch vaults: ${err instanceof Error ? err.message : String(err)}` }, 502);
+  }
 });
 
 // ── Per-vault E2EE passwords ──

@@ -161,6 +161,7 @@ export const runnerConfig = {
       body: JSON.stringify({ token }),
     }),
   removeAuth: () => request("/api/runner/config/auth", { method: "DELETE" }),
+  listVaults: () => request<{ vaults: { id: string; name: string }[] }>("/api/runner/config/vaults"),
   setVault: (vault: string, password: string) =>
     request(`/api/runner/config/vaults/${encodeURIComponent(vault)}`, {
       method: "PUT",

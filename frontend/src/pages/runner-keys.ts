@@ -219,26 +219,58 @@ async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
     vaultsBox.appendChild(list);
   }
 
-  // Add vault form
-  const addForm = h("div", { className: "flex items-end gap-2" });
-  const vaultNameInput = input({ placeholder: "Vault name" });
-  const vaultPassInput = input({ placeholder: "E2EE password", type: "password" });
-  addForm.appendChild(h("div", { className: "flex-1" }, field("Vault", vaultNameInput)));
-  addForm.appendChild(h("div", { className: "flex-1" }, field("E2EE Password", vaultPassInput)));
-  addForm.appendChild(h("div", { className: "pb-1" },
-    btn("Add Vault", {
-      onClick: async () => {
-        const name = vaultNameInput.value.trim();
-        const pass = vaultPassInput.value.trim();
-        if (!name || !pass) return;
-        try {
-          await api.runnerConfig.setVault(name, pass);
-          renderRunnerDetail(root);
-        } catch (e) { alert((e as Error).message); }
-      },
-    }),
-  ));
-  vaultsBox.appendChild(addForm);
+  // Add vault form — dropdown populated from Obsidian API
+  if (config.auth_token.configured) {
+    const addForm = h("div", { className: "flex items-end gap-2" });
+
+    const selectWrapper = h("div", { className: "flex-1" });
+    const selectLabel = h("div", { className: "text-[10.5px] font-medium text-text-2 mb-1" }, "Vault");
+    const vaultSelect = document.createElement("select");
+    vaultSelect.className = "w-full bg-surface-0 border border-edge rounded-md px-3 py-2 text-[12px] text-text-1 outline-hidden focus:border-accent font-[family-name:var(--font-sans)]";
+    vaultSelect.appendChild(h("option", { value: "" }, "Loading vaults..."));
+    vaultSelect.disabled = true;
+    selectWrapper.appendChild(selectLabel);
+    selectWrapper.appendChild(vaultSelect);
+    addForm.appendChild(selectWrapper);
+
+    // Fetch vaults from Obsidian API
+    const configuredVaultNames = new Set(config.vaults.map((v) => v.vault));
+    api.runnerConfig.listVaults().then(({ vaults }) => {
+      vaultSelect.innerHTML = "";
+      const available = vaults.filter((v) => !configuredVaultNames.has(v.name));
+      if (available.length === 0) {
+        vaultSelect.appendChild(h("option", { value: "" }, "All vaults configured"));
+      } else {
+        vaultSelect.appendChild(h("option", { value: "" }, "Select a vault..."));
+        for (const v of available) {
+          vaultSelect.appendChild(h("option", { value: v.name }, v.name));
+        }
+        vaultSelect.disabled = false;
+      }
+    }).catch(() => {
+      vaultSelect.innerHTML = "";
+      vaultSelect.appendChild(h("option", { value: "" }, "Failed to load vaults"));
+    });
+
+    const vaultPassInput = input({ placeholder: "E2EE password", type: "password" });
+    addForm.appendChild(h("div", { className: "flex-1" }, field("E2EE Password", vaultPassInput)));
+    addForm.appendChild(h("div", { className: "pb-1" },
+      btn("Add Vault", {
+        onClick: async () => {
+          const name = vaultSelect.value;
+          const pass = vaultPassInput.value.trim();
+          if (!name || !pass) return;
+          try {
+            await api.runnerConfig.setVault(name, pass);
+            renderRunnerDetail(root);
+          } catch (e) { alert((e as Error).message); }
+        },
+      }),
+    ));
+    vaultsBox.appendChild(addForm);
+  } else {
+    vaultsBox.appendChild(h("div", { className: "text-[11px] text-text-3 italic" }, "Set the auth token above to see available vaults."));
+  }
 
   section.appendChild(vaultsBox);
   container.appendChild(section);
