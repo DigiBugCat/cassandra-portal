@@ -78,6 +78,41 @@ app.get("/api/acl/:service/tools", async (c) => {
   return c.json(results);
 });
 
+// DEBUG: ACL connectivity diagnostic (remove after debugging)
+app.get("/api/debug/acl", async (c) => {
+  const { getUserEmail } = await import("./auth");
+  const email = getUserEmail(c.req.raw);
+
+  const debug: Record<string, unknown> = {
+    step1_email: email || "(empty)",
+    step2_acl_url: c.env.ACL_URL ? "set" : "NOT SET",
+    step3_acl_secret: c.env.ACL_SECRET ? "set" : "NOT SET",
+    step4_cf_headers: {
+      "Cf-Access-Authenticated-User-Email": c.req.header("Cf-Access-Authenticated-User-Email") || "(missing)",
+      "Cf-Access-Jwt-Assertion": c.req.header("Cf-Access-Jwt-Assertion") ? "(present)" : "(missing)",
+      "Cookie_has_CF_Authorization": (c.req.header("Cookie") || "").includes("CF_Authorization"),
+    },
+  };
+
+  // Try calling ACL whoami
+  if (email && c.env.ACL_URL && c.env.ACL_SECRET) {
+    try {
+      const resp = await fetch(`${c.env.ACL_URL}/acl/whoami`, {
+        headers: {
+          "X-ACL-Secret": c.env.ACL_SECRET,
+          "X-Admin-Email": email,
+        },
+      });
+      debug.step5_acl_whoami_status = resp.status;
+      debug.step5_acl_whoami_body = await resp.json();
+    } catch (e) {
+      debug.step5_acl_whoami_error = (e as Error).message;
+    }
+  }
+
+  return c.json(debug);
+});
+
 // Mount API routes
 app.route("/", runnerProxy);
 app.route("/", mcpKeys);
