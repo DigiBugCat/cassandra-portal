@@ -8,10 +8,39 @@ let expandedId: string | null = null;
 let cachedGroups: Record<string, api.AclGroupEntry> = {};
 let cachedServices: api.McpService[] = [];
 
-// Saving indicator
-let saving = false;
+// Debounced auto-save: queues saves and only fires after 400ms of no changes.
+// If a save is in-flight, waits for it to finish then saves again with latest state.
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveInFlight = false;
+let pendingSave: (() => Promise<void>) | null = null;
+
+function debouncedSave(saveFn: () => Promise<void>, indicator?: HTMLElement | null) {
+  pendingSave = saveFn;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    saveTimer = null;
+    if (saveInFlight) return; // will be picked up after current save
+    await flushSave(indicator);
+  }, 400);
+}
+
+async function flushSave(indicator?: HTMLElement | null) {
+  while (pendingSave) {
+    const fn = pendingSave;
+    pendingSave = null;
+    saveInFlight = true;
+    try {
+      await fn();
+      if (indicator) showSaved(indicator);
+    } catch { /* silent */ }
+    saveInFlight = false;
+  }
+}
+
 function showSaved(el: HTMLElement) {
-  const indicator = h("span", { className: "text-[10px] text-ok ml-2 transition-opacity" }, "Saved");
+  // Remove any existing indicator first
+  el.querySelectorAll(".saved-flash").forEach(e => e.remove());
+  const indicator = h("span", { className: "saved-flash text-[10px] text-ok ml-2" }, "Saved");
   el.appendChild(indicator);
   setTimeout(() => indicator.remove(), 1500);
 }
@@ -111,17 +140,15 @@ async function renderUsersTab(container: HTMLElement, root: HTMLElement) {
 }
 
 /** Auto-save helper for users: reads current form state and saves. */
-async function autoSaveUser(root: HTMLElement, email: string, inner: HTMLElement) {
-  if (saving) return;
-  saving = true;
-  const role = (inner.querySelector("#acl-role-select") as HTMLSelectElement).value as "admin" | "user";
-  const groups = getSelectedChips("acl-groups");
-  const userData: api.AclUserEntry = { role };
-  if (groups.length > 0) userData.groups = groups;
-  await api.aclAdmin.users.upsert(email, userData);
-  saving = false;
-  const indicator = inner.querySelector(".save-indicator");
-  if (indicator) showSaved(indicator as HTMLElement);
+function autoSaveUser(_root: HTMLElement, email: string, inner: HTMLElement) {
+  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+  debouncedSave(async () => {
+    const role = (inner.querySelector("#acl-role-select") as HTMLSelectElement).value as "admin" | "user";
+    const groups = getSelectedChips("acl-groups");
+    const userData: api.AclUserEntry = { role };
+    if (groups.length > 0) userData.groups = groups;
+    await api.aclAdmin.users.upsert(email, userData);
+  }, indicator);
 }
 
 function buildUserEditPanel(root: HTMLElement, email: string, existing: api.AclUserEntry, groupNames: string[]): HTMLElement {
@@ -276,14 +303,12 @@ function collectGroupServices(inner: HTMLElement): api.AclGroupEntry["services"]
   return services;
 }
 
-async function autoSaveGroup(root: HTMLElement, name: string, inner: HTMLElement) {
-  if (saving) return;
-  saving = true;
-  const services = collectGroupServices(inner);
-  await api.aclAdmin.groups.upsert(name, { services });
-  saving = false;
-  const indicator = inner.querySelector(".save-indicator");
-  if (indicator) showSaved(indicator as HTMLElement);
+function autoSaveGroup(_root: HTMLElement, name: string, inner: HTMLElement) {
+  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+  debouncedSave(async () => {
+    const services = collectGroupServices(inner);
+    await api.aclAdmin.groups.upsert(name, { services });
+  }, indicator);
 }
 
 function buildGroupEditPanel(root: HTMLElement, name: string, existing: api.AclGroupEntry): HTMLElement {
@@ -439,14 +464,12 @@ async function renderDomainsTab(container: HTMLElement, root: HTMLElement) {
   }
 }
 
-async function autoSaveDomain(root: HTMLElement, domain: string, _inner: HTMLElement) {
-  if (saving) return;
-  saving = true;
-  const groups = getSelectedChips("acl-domain-groups");
-  await api.aclAdmin.domains.upsert(domain, { groups });
-  saving = false;
-  const indicator = _inner.querySelector(".save-indicator");
-  if (indicator) showSaved(indicator as HTMLElement);
+function autoSaveDomain(_root: HTMLElement, domain: string, inner: HTMLElement) {
+  const indicator = inner.querySelector(".save-indicator") as HTMLElement | null;
+  debouncedSave(async () => {
+    const groups = getSelectedChips("acl-domain-groups");
+    await api.aclAdmin.domains.upsert(domain, { groups });
+  }, indicator);
 }
 
 function buildDomainEditPanel(root: HTMLElement, domain: string, existing: api.AclDomainEntry, groupNames: string[]): HTMLElement {
