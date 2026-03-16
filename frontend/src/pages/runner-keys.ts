@@ -46,8 +46,9 @@ export async function renderRunnerDetail(root: HTMLElement) {
   const envLabel = h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Or set environment variables");
   setup.appendChild(envLabel);
 
-  const envBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 font-mono text-[11px] text-text-1 leading-relaxed" });
-  envBox.innerHTML = `<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_URL</span>=https://claude-runner.${domain}\n<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_API_KEY</span>=&lt;your-key&gt;`;
+  const envBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 font-mono text-[11px] text-text-1 leading-relaxed whitespace-pre" });
+  envBox.innerHTML = `<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_URL</span>=https://claude-runner.${domain}
+<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_API_KEY</span>=&lt;your-key&gt;`;
   setup.appendChild(envBox);
 
   container.appendChild(setup);
