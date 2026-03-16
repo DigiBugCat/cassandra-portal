@@ -27,12 +27,43 @@ export function setCurrentProject(project: api.Project | null) {
   render();
 }
 
+function viewToPath(view: SelectedView | null): string {
+  if (!view) return "/";
+  if (view.type === "mcp") return `/service/${view.service.id}`;
+  if (view.type === "runner") return "/runner";
+  if (view.type === "acl") return "/acl";
+  return "/";
+}
+
+function pathToView(path: string): SelectedView | null {
+  if (path.startsWith("/service/")) {
+    const id = path.slice("/service/".length);
+    const svc = allServices.find((s) => s.id === id);
+    if (svc) return { type: "mcp", service: svc };
+  }
+  if (path === "/runner") return { type: "runner" };
+  if (path === "/acl") return { type: "acl" };
+  // Default: first MCP service
+  if (allServices.length > 0) return { type: "mcp", service: allServices[0] };
+  return null;
+}
+
+function navigate(view: SelectedView) {
+  selectedView = view;
+  const path = viewToPath(view);
+  if (window.location.pathname !== path) {
+    history.pushState(null, "", path);
+  }
+  render();
+}
+
 async function loadData() {
   const [projectsResult, servicesResult] = await Promise.all([api.projects.list(), api.services.list()]);
   allProjects = projectsResult;
   allServices = servicesResult;
   if (!currentProject && allProjects.length > 0) currentProject = allProjects[0];
-  if (!selectedView && allServices.length > 0) selectedView = { type: "mcp", service: allServices[0] };
+  // Restore view from URL path, or default to first MCP service
+  selectedView = pathToView(window.location.pathname);
 
   // Check admin status (non-blocking — if ACL is not configured, defaults to false)
   try {
@@ -129,7 +160,7 @@ function render() {
       svc.status === "active",
       isActive,
       String(svc.tools?.length || 0),
-      () => { selectedView = { type: "mcp", service: svc }; render(); },
+      () => navigate({ type: "mcp", service: svc }),
     );
 
     // Config indicator
@@ -153,7 +184,7 @@ function render() {
       true,
       isRunnerActive,
       undefined,
-      () => { selectedView = { type: "runner" }; render(); },
+      () => navigate({ type: "runner" }),
     ),
   );
 
@@ -166,7 +197,7 @@ function render() {
         true,
         isAclActive,
         undefined,
-        () => { selectedView = { type: "acl" }; render(); },
+        () => navigate({ type: "acl" }),
       ),
     );
   }
@@ -253,6 +284,12 @@ async function checkConfigStatus() {
     }
   }
 }
+
+// Handle browser back/forward
+window.addEventListener("popstate", () => {
+  selectedView = pathToView(window.location.pathname);
+  render();
+});
 
 // Initial load
 loadData().then(() => render());

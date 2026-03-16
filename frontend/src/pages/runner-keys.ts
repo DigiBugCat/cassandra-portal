@@ -21,38 +21,6 @@ export async function renderRunnerDetail(root: HTMLElement) {
   });
   container.appendChild(header);
 
-  // ── Quick Setup ──
-  const domain = await api.getDomain();
-  const setup = h("div", { className: "bg-accent-soft/60 border border-accent/20 rounded-lg p-4 mb-6" });
-
-  const setupLabel = h("div", { className: "text-[10.5px] font-semibold text-accent uppercase tracking-wider mb-3 flex items-center gap-1.5" });
-  setupLabel.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`;
-  setupLabel.appendChild(document.createTextNode(" Quick Setup"));
-  setup.appendChild(setupLabel);
-
-  // Usage
-  const usageLabel = h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Connect via Claude Code CLI");
-  setup.appendChild(usageLabel);
-
-  const usageCmd = `claude --runner-url https://claude-runner.${domain} --runner-api-key <your-key>`;
-  const usageBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 font-mono text-[11px] text-accent break-all leading-relaxed relative mb-4" });
-  usageBox.appendChild(document.createTextNode(usageCmd));
-  const usageCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(usageCmd, usageCopy) });
-  usageCopy.className += " absolute top-2 right-2";
-  usageBox.appendChild(usageCopy);
-  setup.appendChild(usageBox);
-
-  // Env var alternative
-  const envLabel = h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Or set environment variables");
-  setup.appendChild(envLabel);
-
-  const envBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 font-mono text-[11px] text-text-1 leading-relaxed whitespace-pre" });
-  envBox.innerHTML = `<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_URL</span>=https://claude-runner.${domain}
-<span class="text-text-3">export</span> <span class="text-accent">CLAUDE_RUNNER_API_KEY</span>=&lt;your-key&gt;`;
-  setup.appendChild(envBox);
-
-  container.appendChild(setup);
-
   // ── Tenant Keys ──
   const keysSection = h("div", {});
   const sectionTitle = h("div", { className: "text-[11px] font-semibold text-text-3 uppercase tracking-wider mb-3 pb-2 border-b border-edge" }, "Tenant Keys");
