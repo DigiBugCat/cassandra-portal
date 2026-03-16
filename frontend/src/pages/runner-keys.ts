@@ -135,76 +135,112 @@ export async function renderRunnerDetail(root: HTMLElement) {
 
 async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
   const section = h("div", { className: "mt-8" });
-  const sectionTitle = h("div", { className: "text-[11px] font-semibold text-text-3 uppercase tracking-wider mb-3 pb-2 border-b border-edge" }, "Configuration");
+  const sectionTitle = h("div", { className: "text-[11px] font-semibold text-text-3 uppercase tracking-wider mb-3 pb-2 border-b border-edge" }, "Obsidian Vault Sync");
   section.appendChild(sectionTitle);
 
-  let configMeta: api.RunnerConfigMeta;
+  let config: api.RunnerConfigMeta;
   try {
-    configMeta = await api.runnerConfig.get();
+    config = await api.runnerConfig.get();
   } catch {
     section.appendChild(h("div", { className: "text-xs text-text-3" }, "Failed to load configuration."));
     container.appendChild(section);
     return;
   }
 
-  // Status line
-  if (configMeta.has_credentials) {
-    const statusLine = h("div", { className: "flex items-center gap-2 mb-4" },
+  section.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, "Obsidian account token and per-vault E2EE passwords. Encrypted at rest, fetched per-session by the runner."));
+
+  // ── Auth Token (account-level) ──
+  const authBox = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5 mb-4" });
+  authBox.appendChild(h("div", { className: "text-[11px] font-semibold text-text-2 mb-1" }, "Obsidian Auth Token"));
+  authBox.appendChild(h("div", { className: "text-[11px] text-text-3 mb-3" }, "Account-level token shared across all vaults."));
+
+  if (config.auth_token.configured) {
+    const statusLine = h("div", { className: "flex items-center gap-2 mb-3" },
       pill("Configured", "ok"),
-      h("span", { className: "text-[11px] text-text-3" }, `Updated ${fmtDate(configMeta.updated_at)} by ${configMeta.updated_by || "unknown"}`),
+      h("span", { className: "text-[11px] text-text-3" }, `Updated ${fmtDate(config.auth_token.updated_at)}`),
     );
-    section.appendChild(statusLine);
+    authBox.appendChild(statusLine);
   }
 
-  section.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, "Obsidian vault sync credentials. These are encrypted at rest and fetched per-session by the runner."));
-
-  // Inline form
-  const form = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
-  const inputs: { key: string; input: HTMLInputElement }[] = [];
-
-  for (const f of configMeta.fields) {
-    const inp = input({
-      placeholder: configMeta.has_credentials ? "\u2022\u2022\u2022\u2022\u2022\u2022 (leave blank to keep current)" : f.label,
-      type: "password",
-    });
-    inputs.push({ key: f.key, input: inp });
-    form.appendChild(field(f.label, inp));
-  }
-
-  // Actions
-  const actions = h("div", { className: "flex items-center gap-2 pt-1" });
-
-  const saveBtn = btn("Save", {
-    onClick: async () => {
-      const creds: Record<string, string> = {};
-      for (const { key, input: inp } of inputs) {
-        const val = inp.value.trim();
-        if (val) creds[key] = val;
-      }
-      if (Object.keys(creds).length === 0 && !configMeta.has_credentials) return;
-      try {
-        await api.runnerConfig.set(creds);
-        renderRunnerDetail(root);
-      } catch (e) {
-        alert((e as Error).message);
-      }
-    },
+  const tokenInput = input({
+    placeholder: config.auth_token.configured ? "\u2022\u2022\u2022\u2022\u2022\u2022 (leave blank to keep current)" : "Obsidian auth token",
+    type: "password",
   });
-  actions.appendChild(saveBtn);
+  authBox.appendChild(tokenInput);
 
-  if (configMeta.has_credentials) {
-    actions.appendChild(btn("Remove", {
+  const authActions = h("div", { className: "flex items-center gap-2 mt-3" });
+  authActions.appendChild(btn("Save", {
+    onClick: async () => {
+      const val = tokenInput.value.trim();
+      if (!val && !config.auth_token.configured) return;
+      if (!val) return; // nothing to update
+      try {
+        await api.runnerConfig.setAuth(val);
+        renderRunnerDetail(root);
+      } catch (e) { alert((e as Error).message); }
+    },
+  }));
+  if (config.auth_token.configured) {
+    authActions.appendChild(btn("Remove", {
       variant: "danger",
       onClick: async () => {
-        if (!confirm("Remove Obsidian credentials? Vault sync will stop working.")) return;
-        await api.runnerConfig.remove();
+        if (!confirm("Remove auth token? Vault sync will stop working for all vaults.")) return;
+        await api.runnerConfig.removeAuth();
         renderRunnerDetail(root);
       },
     }));
   }
+  authBox.appendChild(authActions);
+  section.appendChild(authBox);
 
-  form.appendChild(actions);
-  section.appendChild(form);
+  // ── Vaults (per-vault E2EE passwords) ──
+  const vaultsBox = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
+  vaultsBox.appendChild(h("div", { className: "text-[11px] font-semibold text-text-2 mb-1" }, "Vault E2EE Passwords"));
+  vaultsBox.appendChild(h("div", { className: "text-[11px] text-text-3 mb-3" }, "Each vault can have its own end-to-end encryption password."));
+
+  // Existing vaults
+  if (config.vaults.length > 0) {
+    const list = h("div", { className: "flex flex-col gap-2 mb-4" });
+    for (const v of config.vaults) {
+      const row = h("div", { className: "flex items-center gap-3 px-3 py-2.5 bg-surface-3 rounded-md" });
+      row.appendChild(h("span", { className: "font-mono text-[12px] text-text-1 font-medium" }, v.vault));
+      row.appendChild(h("span", { className: "text-[10px] text-text-3 ml-auto" }, fmtDate(v.updated_at)));
+      row.appendChild(btn("Remove", {
+        variant: "danger",
+        size: "sm",
+        onClick: async () => {
+          if (!confirm(`Remove E2EE password for vault "${v.vault}"?`)) return;
+          await api.runnerConfig.removeVault(v.vault);
+          renderRunnerDetail(root);
+        },
+      }));
+      list.appendChild(row);
+    }
+    vaultsBox.appendChild(list);
+  }
+
+  // Add vault form
+  const addForm = h("div", { className: "flex items-end gap-2" });
+  const vaultNameInput = input({ placeholder: "Vault name" });
+  const vaultPassInput = input({ placeholder: "E2EE password", type: "password" });
+  addForm.appendChild(h("div", { className: "flex-1" }, field("Vault", vaultNameInput)));
+  addForm.appendChild(h("div", { className: "flex-1" }, field("E2EE Password", vaultPassInput)));
+  addForm.appendChild(h("div", { className: "pb-1" },
+    btn("Add Vault", {
+      onClick: async () => {
+        const name = vaultNameInput.value.trim();
+        const pass = vaultPassInput.value.trim();
+        if (!name || !pass) return;
+        try {
+          await api.runnerConfig.setVault(name, pass);
+          renderRunnerDetail(root);
+        } catch (e) { alert((e as Error).message); }
+      },
+    }),
+  ));
+  vaultsBox.appendChild(addForm);
+
+  section.appendChild(vaultsBox);
   container.appendChild(section);
 }
 

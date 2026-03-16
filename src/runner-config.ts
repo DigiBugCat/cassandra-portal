@@ -4,67 +4,78 @@ import { getUserEmail } from "./auth";
 import { encrypt } from "./db";
 
 /**
- * Runner configuration — dedicated credential management for the Agent Runner.
- * Credentials are encrypted at rest in D1 and synced to the ACL credential store
- * under cred:{email}:runner for the orchestrator to fetch at session spawn.
+ * Runner configuration — account-level auth token + per-vault E2EE passwords.
+ *
+ * ACL store layout:
+ *   cred:{email}:runner          → { OBSIDIAN_AUTH_TOKEN: "..." }
+ *   cred:{email}:runner:{vault}  → { OBSIDIAN_E2EE_PASSWORD: "..." }
+ *
+ * The runner orchestrator fetches both at session spawn and merges them.
  *
  * Security:
  * - Auth: CF Access (user email from header/JWT)
  * - At rest: AES-GCM encrypted in D1 (CREDENTIALS_KEY)
- * - In transit: HTTPS (CF edge) + X-ACL-Secret for service-to-service
- * - API never returns plaintext credentials — only metadata (has_credentials, updated_at)
- * - Only allowlisted fields are stored (OBSIDIAN_AUTH_TOKEN, OBSIDIAN_E2EE_PASSWORD)
+ * - API never returns plaintext — only metadata
+ * - ACL sync uses X-ACL-Secret service-to-service auth
  */
-
-const RUNNER_CREDENTIAL_FIELDS = [
-  { key: "OBSIDIAN_AUTH_TOKEN", label: "Obsidian Auth Token" },
-  { key: "OBSIDIAN_E2EE_PASSWORD", label: "Obsidian E2EE Password" },
-] as const;
-
-const ALLOWED_KEYS = new Set<string>(RUNNER_CREDENTIAL_FIELDS.map((f) => f.key));
 
 const app = new Hono<{ Bindings: Env }>();
 
-// GET /api/runner/config — metadata only, never returns plaintext credentials
+function aclSync(env: Env, email: string, service: string, body: Record<string, string> | null) {
+  if (!env.ACL_URL || !env.ACL_SECRET) return;
+  const url = `${env.ACL_URL}/credentials/${encodeURIComponent(email)}/${encodeURIComponent(service)}`;
+  if (body) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-ACL-Secret": env.ACL_SECRET },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  }
+  return fetch(url, {
+    method: "DELETE",
+    headers: { "X-ACL-Secret": env.ACL_SECRET },
+  }).catch(() => {});
+}
+
+// ── Account-level auth token ──
+
+// GET /api/runner/config — account metadata + list of vaults
 app.get("/api/runner/config", async (c) => {
   const email = getUserEmail(c.req.raw);
   if (!email) return c.json({ error: "authenticated user email is required" }, 401);
 
-  const row = await c.env.PORTAL_DB
+  const accountRow = await c.env.PORTAL_DB
     .prepare("SELECT updated_at, updated_by FROM runner_config WHERE email = ?")
     .bind(email)
     .first<{ updated_at: string; updated_by: string }>();
 
+  const { results: vaultRows } = await c.env.PORTAL_DB
+    .prepare("SELECT vault, updated_at FROM runner_vaults WHERE email = ? ORDER BY vault ASC")
+    .bind(email)
+    .all<{ vault: string; updated_at: string }>();
+
   return c.json({
-    has_credentials: !!row,
-    updated_at: row?.updated_at ?? null,
-    updated_by: row?.updated_by ?? null,
-    fields: RUNNER_CREDENTIAL_FIELDS,
+    auth_token: {
+      configured: !!accountRow,
+      updated_at: accountRow?.updated_at ?? null,
+    },
+    vaults: (vaultRows || []).map((v) => ({
+      vault: v.vault,
+      updated_at: v.updated_at,
+    })),
   });
 });
 
-// PUT /api/runner/config — save encrypted credentials, sync to ACL
-app.put("/api/runner/config", async (c) => {
+// PUT /api/runner/config/auth — set account-level Obsidian auth token
+app.put("/api/runner/config/auth", async (c) => {
   const email = getUserEmail(c.req.raw);
   if (!email) return c.json({ error: "authenticated user email is required" }, 401);
 
-  const body = await c.req.json<Record<string, string>>();
+  const { token } = await c.req.json<{ token?: string }>();
+  if (!token?.trim()) return c.json({ error: "token is required" }, 400);
 
-  // Only store allowlisted fields — reject unknown keys
-  const sanitized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (ALLOWED_KEYS.has(key) && typeof value === "string" && value.trim()) {
-      sanitized[key] = value.trim();
-    }
-  }
+  const encrypted = await encrypt(JSON.stringify({ OBSIDIAN_AUTH_TOKEN: token.trim() }), c.env.CREDENTIALS_KEY);
 
-  if (Object.keys(sanitized).length === 0) {
-    return c.json({ error: "at least one credential field is required" }, 400);
-  }
-
-  const encrypted = await encrypt(JSON.stringify(sanitized), c.env.CREDENTIALS_KEY);
-
-  // Upsert in D1
   await c.env.PORTAL_DB
     .prepare(
       `INSERT INTO runner_config (email, credentials_encrypted, updated_by)
@@ -77,31 +88,17 @@ app.put("/api/runner/config", async (c) => {
     .bind(email, encrypted, email)
     .run();
 
-  // Sync to ACL credential store (fire-and-forget)
-  if (c.env.ACL_URL && c.env.ACL_SECRET) {
-    c.executionCtx.waitUntil(
-      fetch(`${c.env.ACL_URL}/credentials/${encodeURIComponent(email)}/runner`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-ACL-Secret": c.env.ACL_SECRET,
-        },
-        body: JSON.stringify(sanitized),
-      }).catch(() => {}),
-    );
-  }
+  c.executionCtx.waitUntil(aclSync(c.env, email, "runner", { OBSIDIAN_AUTH_TOKEN: token.trim() }) ?? Promise.resolve());
 
   c.executionCtx.waitUntil(
-    pushMetrics(c.env, [
-      counter("mcp_key_operations_total", 1, { operation: "set_runner_config", service: "runner" }),
-    ]),
+    pushMetrics(c.env, [counter("mcp_key_operations_total", 1, { operation: "set_runner_auth", service: "runner" })]),
   );
 
   return c.json({ ok: true });
 });
 
-// DELETE /api/runner/config — remove credentials from D1 and ACL
-app.delete("/api/runner/config", async (c) => {
+// DELETE /api/runner/config/auth — remove account-level auth token
+app.delete("/api/runner/config/auth", async (c) => {
   const email = getUserEmail(c.req.raw);
   if (!email) return c.json({ error: "authenticated user email is required" }, 401);
 
@@ -110,21 +107,62 @@ app.delete("/api/runner/config", async (c) => {
     .bind(email)
     .run();
 
-  // Remove from ACL credential store (fire-and-forget)
-  if (c.env.ACL_URL && c.env.ACL_SECRET) {
-    c.executionCtx.waitUntil(
-      fetch(`${c.env.ACL_URL}/credentials/${encodeURIComponent(email)}/runner`, {
-        method: "DELETE",
-        headers: { "X-ACL-Secret": c.env.ACL_SECRET },
-      }).catch(() => {}),
-    );
-  }
+  c.executionCtx.waitUntil(aclSync(c.env, email, "runner", null) ?? Promise.resolve());
+
+  return c.json({ ok: true });
+});
+
+// ── Per-vault E2EE passwords ──
+
+// PUT /api/runner/config/vaults/:vault — set E2EE password for a vault
+app.put("/api/runner/config/vaults/:vault", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const vault = c.req.param("vault").trim();
+  if (!vault) return c.json({ error: "vault name is required" }, 400);
+
+  const { password } = await c.req.json<{ password?: string }>();
+  if (!password?.trim()) return c.json({ error: "password is required" }, 400);
+
+  const encrypted = await encrypt(JSON.stringify({ OBSIDIAN_E2EE_PASSWORD: password.trim() }), c.env.CREDENTIALS_KEY);
+
+  await c.env.PORTAL_DB
+    .prepare(
+      `INSERT INTO runner_vaults (email, vault, e2ee_encrypted, updated_by)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(email, vault) DO UPDATE SET
+         e2ee_encrypted = excluded.e2ee_encrypted,
+         updated_by = excluded.updated_by,
+         updated_at = datetime('now')`,
+    )
+    .bind(email, vault, encrypted, email)
+    .run();
 
   c.executionCtx.waitUntil(
-    pushMetrics(c.env, [
-      counter("mcp_key_operations_total", 1, { operation: "delete_runner_config", service: "runner" }),
-    ]),
+    aclSync(c.env, email, `runner:${vault}`, { OBSIDIAN_E2EE_PASSWORD: password.trim() }) ?? Promise.resolve(),
   );
+
+  c.executionCtx.waitUntil(
+    pushMetrics(c.env, [counter("mcp_key_operations_total", 1, { operation: "set_runner_vault", service: "runner" })]),
+  );
+
+  return c.json({ ok: true });
+});
+
+// DELETE /api/runner/config/vaults/:vault — remove a vault's E2EE password
+app.delete("/api/runner/config/vaults/:vault", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const vault = c.req.param("vault").trim();
+
+  await c.env.PORTAL_DB
+    .prepare("DELETE FROM runner_vaults WHERE email = ? AND vault = ?")
+    .bind(email, vault)
+    .run();
+
+  c.executionCtx.waitUntil(aclSync(c.env, email, `runner:${vault}`, null) ?? Promise.resolve());
 
   return c.json({ ok: true });
 });

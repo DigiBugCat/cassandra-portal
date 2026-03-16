@@ -145,24 +145,30 @@ export const keys = {
     request<{ key: string; name: string }>(`/api/projects/${projectId}/services/${serviceId}/keys/${keyId}/rotate`, { method: "POST" }),
 };
 
-// ── Runner config (Obsidian credentials) ──
+// ── Runner config (Obsidian auth token + per-vault E2EE) ──
 
 export interface RunnerConfigMeta {
-  has_credentials: boolean;
-  updated_at: string | null;
-  updated_by: string | null;
-  fields: { key: string; label: string }[];
+  auth_token: { configured: boolean; updated_at: string | null };
+  vaults: { vault: string; updated_at: string }[];
 }
 
 export const runnerConfig = {
   get: () => request<RunnerConfigMeta>("/api/runner/config"),
-  set: (creds: Record<string, string>) =>
-    request("/api/runner/config", {
+  setAuth: (token: string) =>
+    request("/api/runner/config/auth", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(creds),
+      body: JSON.stringify({ token }),
     }),
-  remove: () => request("/api/runner/config", { method: "DELETE" }),
+  removeAuth: () => request("/api/runner/config/auth", { method: "DELETE" }),
+  setVault: (vault: string, password: string) =>
+    request(`/api/runner/config/vaults/${encodeURIComponent(vault)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }),
+  removeVault: (vault: string) =>
+    request(`/api/runner/config/vaults/${encodeURIComponent(vault)}`, { method: "DELETE" }),
 };
 
 // ── Runner tokens (tenant keys) ──
