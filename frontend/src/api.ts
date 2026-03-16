@@ -152,6 +152,7 @@ export interface RunnerToken {
   name: string;
   namespace: string;
   max_sessions: number;
+  email?: string;
   created_at: string;
   api_key?: string;
 }

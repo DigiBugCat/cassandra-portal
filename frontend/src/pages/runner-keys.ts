@@ -91,7 +91,7 @@ export async function renderRunnerDetail(root: HTMLElement) {
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const col of ["Name", "Namespace", "Max Sessions", "Created", ""]) {
+  for (const col of ["Name", "Email", "Namespace", "Max Sessions", "Created", ""]) {
     const th = document.createElement("th");
     th.className = "text-left px-4 py-2.5 text-[10px] font-medium text-text-3 uppercase tracking-wider bg-surface-3 border-b border-edge";
     th.textContent = col;
@@ -107,6 +107,7 @@ export async function renderRunnerDetail(root: HTMLElement) {
 
     const cells = [
       { text: t.name, className: "font-medium" },
+      { text: t.email || "—", className: "text-text-3" },
       { el: mono(t.namespace) },
       { text: String(t.max_sessions) },
       { text: fmtDate(t.created_at), className: "text-text-3" },
