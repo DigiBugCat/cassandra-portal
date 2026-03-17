@@ -295,6 +295,255 @@ async function renderRunnerConfig(container: HTMLElement, root: HTMLElement) {
 
   section.appendChild(vaultsBox);
   container.appendChild(section);
+
+  // ── MCP Servers (per-vault) ──
+  await renderMcpServersSection(container, config, root);
+}
+
+// ── MCP Server Management (per-vault) ──
+
+let mcpExpandedVault: string | null = null;
+let mcpShowAddForm = false;
+
+async function renderMcpServersSection(container: HTMLElement, config: api.RunnerConfigMeta, root: HTMLElement) {
+  const section = h("div", { className: "mt-8" });
+  section.appendChild(h("div", { className: "text-[11px] font-semibold text-text-3 uppercase tracking-wider mb-3 pb-2 border-b border-edge" }, "MCP Servers"));
+  section.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, "Per-vault MCP server configuration. HTTP/SSE servers injected into runner sessions."));
+
+  if (config.vaults.length === 0) {
+    section.appendChild(h("div", { className: "text-[11px] text-text-3 italic" }, "Configure vaults above first."));
+    container.appendChild(section);
+    return;
+  }
+
+  // Load MCP config for all vaults in parallel
+  const vaultMcpData: Record<string, Record<string, any>> = {};
+  await Promise.all(config.vaults.map(async (v) => {
+    try {
+      const result = await api.runnerConfig.getVaultMcp(v.vault);
+      vaultMcpData[v.vault] = result.mcpServers || {};
+    } catch {
+      vaultMcpData[v.vault] = {};
+    }
+  }));
+
+  const list = h("div", { className: "flex flex-col border border-edge rounded-lg overflow-hidden" });
+
+  for (const v of config.vaults) {
+    const servers = vaultMcpData[v.vault] || {};
+    const serverCount = Object.keys(servers).length;
+    const isExpanded = mcpExpandedVault === v.vault;
+
+    // Row
+    const row = h("div", {
+      className: `flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-edge ${
+        isExpanded ? "bg-surface-1 border-b-transparent" : "bg-surface-2 hover:bg-surface-3 last:border-b-transparent"
+      }`,
+    });
+    row.appendChild(h("span", { className: "font-mono text-[11.5px] font-medium min-w-[160px]" }, v.vault));
+
+    if (serverCount > 0) {
+      const serverPills = h("div", { className: "flex gap-1 flex-wrap flex-1" });
+      for (const name of Object.keys(servers)) {
+        const srv = servers[name];
+        const pillEl = h("span", {
+          className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-accent-soft text-accent",
+        });
+        pillEl.appendChild(h("span", { className: "font-mono" }, name));
+        pillEl.appendChild(h("span", { className: "text-accent/60" }, srv.type || "http"));
+        serverPills.appendChild(pillEl);
+      }
+      row.appendChild(serverPills);
+    } else {
+      row.appendChild(h("span", { className: "text-[11px] text-text-3 flex-1" }, "No servers configured"));
+    }
+
+    row.appendChild(h("span", { className: `text-text-3 transition-transform text-base ${isExpanded ? "rotate-90" : ""}` }, "\u203A"));
+    row.addEventListener("click", () => {
+      mcpExpandedVault = isExpanded ? null : v.vault;
+      mcpShowAddForm = false;
+      renderRunnerDetail(root);
+    });
+    list.appendChild(row);
+
+    // Expanded panel
+    if (isExpanded) {
+      list.appendChild(buildMcpEditPanel(root, v.vault, servers));
+    }
+  }
+
+  section.appendChild(list);
+  container.appendChild(section);
+}
+
+function buildMcpEditPanel(root: HTMLElement, vaultName: string, servers: Record<string, any>): HTMLElement {
+  const panel = h("div", { className: "bg-surface-1 px-4 pt-3 pb-4" });
+  const inner = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-4" });
+
+  const serverNames = Object.keys(servers);
+
+  // Existing servers
+  if (serverNames.length > 0) {
+    for (const name of serverNames) {
+      const srv = servers[name];
+      const serverRow = h("div", { className: "flex items-center gap-2.5 px-3 py-2.5 bg-surface-3 rounded-md mb-2" });
+
+      serverRow.appendChild(h("span", { className: "font-mono text-[11.5px] text-accent font-medium" }, name));
+
+      serverRow.appendChild(h("span", {
+        className: "text-[9.5px] font-medium text-text-3 bg-surface-4 px-1.5 py-0.5 rounded",
+      }, srv.type || "http"));
+
+      serverRow.appendChild(h("span", { className: "font-mono text-[10.5px] text-text-3 truncate flex-1" }, srv.url || ""));
+
+      if (srv.headers && Object.keys(srv.headers).length > 0) {
+        serverRow.appendChild(h("span", {
+          className: "text-[9.5px] text-text-3 bg-surface-4 px-1.5 py-0.5 rounded",
+        }, `${Object.keys(srv.headers).length} header${Object.keys(srv.headers).length !== 1 ? "s" : ""}`));
+      }
+
+      serverRow.appendChild(btn("Remove", {
+        variant: "danger",
+        size: "sm",
+        onClick: async () => {
+          if (!confirm(`Remove MCP server "${name}" from vault "${vaultName}"?`)) return;
+          const updated = { ...servers };
+          delete updated[name];
+          if (Object.keys(updated).length === 0) {
+            await api.runnerConfig.removeVaultMcp(vaultName);
+          } else {
+            await api.runnerConfig.setVaultMcp(vaultName, updated);
+          }
+          renderRunnerDetail(root);
+        },
+      }));
+
+      inner.appendChild(serverRow);
+    }
+  } else {
+    inner.appendChild(h("div", { className: "text-[11px] text-text-3 mb-3" }, "No MCP servers configured for this vault."));
+  }
+
+  // Add form (expandable)
+  if (mcpShowAddForm) {
+    inner.appendChild(buildMcpAddForm(root, vaultName, servers));
+  }
+
+  // Actions
+  const actions = h("div", { className: "flex items-center gap-2 pt-3 mt-2 border-t border-edge" });
+  if (!mcpShowAddForm) {
+    actions.appendChild(btn("+ Add Server", {
+      size: "sm",
+      onClick: () => {
+        mcpShowAddForm = true;
+        renderRunnerDetail(root);
+      },
+    }));
+  }
+  actions.appendChild(h("div", { className: "flex-1" }));
+  if (serverNames.length > 0) {
+    actions.appendChild(btn("Remove All", {
+      variant: "danger",
+      size: "sm",
+      onClick: async () => {
+        if (!confirm(`Remove all MCP servers from vault "${vaultName}"?`)) return;
+        await api.runnerConfig.removeVaultMcp(vaultName);
+        renderRunnerDetail(root);
+      },
+    }));
+  }
+  inner.appendChild(actions);
+
+  panel.appendChild(inner);
+  return panel;
+}
+
+function buildMcpAddForm(root: HTMLElement, vaultName: string, existingServers: Record<string, any>): HTMLElement {
+  const form = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 mb-2" });
+
+  const inputCls = "w-full px-2.5 py-2 bg-surface-0 border border-edge rounded-md text-[12px] text-text-0 outline-hidden focus:border-accent font-[family-name:var(--font-sans)]";
+  const labelCls = "text-[10px] font-medium text-text-3 uppercase tracking-wider mb-1.5";
+
+  // Row 1: Name + Type
+  const row1 = h("div", { className: "flex gap-3 mb-3" });
+
+  const nameCol = h("div", { className: "flex-1" });
+  nameCol.appendChild(h("div", { className: labelCls }, "Server Name"));
+  const nameInput = document.createElement("input");
+  nameInput.className = inputCls;
+  nameInput.placeholder = "e.g. yt-mcp";
+  nameCol.appendChild(nameInput);
+  row1.appendChild(nameCol);
+
+  const typeCol = h("div", { className: "w-[120px]" });
+  typeCol.appendChild(h("div", { className: labelCls }, "Type"));
+  const typeSelect = document.createElement("select");
+  typeSelect.className = inputCls;
+  typeSelect.appendChild(h("option", { value: "http" }, "HTTP"));
+  typeSelect.appendChild(h("option", { value: "sse" }, "SSE"));
+  typeCol.appendChild(typeSelect);
+  row1.appendChild(typeCol);
+
+  form.appendChild(row1);
+
+  // Row 2: URL
+  const urlField = h("div", { className: "mb-3" });
+  urlField.appendChild(h("div", { className: labelCls }, "URL"));
+  const urlInput = document.createElement("input");
+  urlInput.className = inputCls;
+  urlInput.placeholder = "https://service.example.com/mcp";
+  urlField.appendChild(urlInput);
+  form.appendChild(urlField);
+
+  // Row 3: Headers (optional)
+  const headersField = h("div", { className: "mb-3" });
+  headersField.appendChild(h("div", { className: labelCls }, "Headers (optional, JSON)"));
+  const headersInput = document.createElement("input");
+  headersInput.className = inputCls;
+  headersInput.placeholder = '{"Authorization": "Bearer mcp_..."}';
+  headersField.appendChild(headersInput);
+  form.appendChild(headersField);
+
+  // Actions
+  const formActions = h("div", { className: "flex items-center gap-2" });
+  formActions.appendChild(h("div", { className: "flex-1" }));
+  formActions.appendChild(btn("Cancel", {
+    variant: "outline",
+    size: "sm",
+    onClick: () => {
+      mcpShowAddForm = false;
+      renderRunnerDetail(root);
+    },
+  }));
+  formActions.appendChild(btn("Add Server", {
+    size: "sm",
+    onClick: async () => {
+      const name = nameInput.value.trim();
+      const url = urlInput.value.trim();
+      const type = typeSelect.value;
+      if (!name || !url) return;
+
+      const entry: Record<string, any> = { type, url };
+
+      const headersVal = headersInput.value.trim();
+      if (headersVal) {
+        try {
+          entry.headers = JSON.parse(headersVal);
+        } catch {
+          alert("Headers must be valid JSON");
+          return;
+        }
+      }
+
+      const updated = { ...existingServers, [name]: entry };
+      await api.runnerConfig.setVaultMcp(vaultName, updated);
+      mcpShowAddForm = false;
+      renderRunnerDetail(root);
+    },
+  }));
+  form.appendChild(formActions);
+
+  return form;
 }
 
 function showRotatedKeyModal(root: HTMLElement, tenantName: string, newKey: string) {

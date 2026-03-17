@@ -66,4 +66,5 @@ steps:
         "
       - npx wrangler d1 execute cassandra-portal --remote --file=src/migrations/001_initial.sql
       - npx wrangler d1 execute cassandra-portal --remote --file=src/migrations/002_runner_config.sql
+      - npx wrangler d1 execute cassandra-portal --remote --file=src/migrations/003_vault_mcp_servers.sql
       - npx wrangler deploy
