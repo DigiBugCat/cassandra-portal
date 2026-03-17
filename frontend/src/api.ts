@@ -170,6 +170,16 @@ export const runnerConfig = {
     }),
   removeVault: (vault: string) =>
     request(`/api/runner/config/vaults/${encodeURIComponent(vault)}`, { method: "DELETE" }),
+  getVaultMcp: (vault: string) =>
+    request<{ mcpServers: Record<string, any> }>(`/api/runner/config/vaults/${encodeURIComponent(vault)}/mcp`),
+  setVaultMcp: (vault: string, mcpServers: Record<string, any>) =>
+    request(`/api/runner/config/vaults/${encodeURIComponent(vault)}/mcp`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mcpServers }),
+    }),
+  removeVaultMcp: (vault: string) =>
+    request(`/api/runner/config/vaults/${encodeURIComponent(vault)}/mcp`, { method: "DELETE" }),
 };
 
 // ── Runner tokens (tenant keys) ──

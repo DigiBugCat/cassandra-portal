@@ -229,4 +229,83 @@ app.delete("/api/runner/config/vaults/:vault", async (c) => {
   return c.json({ ok: true });
 });
 
+// ── Per-vault MCP servers ──
+
+// GET /api/runner/config/vaults/:vault/mcp — get MCP server config for a vault
+app.get("/api/runner/config/vaults/:vault/mcp", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const vault = c.req.param("vault").trim();
+  const row = await c.env.PORTAL_DB
+    .prepare("SELECT mcp_servers_encrypted FROM runner_vaults WHERE email = ? AND vault = ?")
+    .bind(email, vault)
+    .first<{ mcp_servers_encrypted: string | null }>();
+
+  if (!row || !row.mcp_servers_encrypted) {
+    return c.json({ mcpServers: {} });
+  }
+
+  const { decrypt } = await import("./db");
+  const servers = JSON.parse(await decrypt(row.mcp_servers_encrypted, c.env.CREDENTIALS_KEY));
+  return c.json({ mcpServers: servers });
+});
+
+// PUT /api/runner/config/vaults/:vault/mcp — set MCP servers for a vault
+app.put("/api/runner/config/vaults/:vault/mcp", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const vault = c.req.param("vault").trim();
+  if (!vault) return c.json({ error: "vault name is required" }, 400);
+
+  const { mcpServers } = await c.req.json<{ mcpServers?: Record<string, any> }>();
+  if (!mcpServers || typeof mcpServers !== "object") {
+    return c.json({ error: "mcpServers object is required" }, 400);
+  }
+
+  const encrypted = await encrypt(JSON.stringify(mcpServers), c.env.CREDENTIALS_KEY);
+
+  // Ensure vault row exists (may not have E2EE password)
+  await c.env.PORTAL_DB
+    .prepare(
+      `INSERT INTO runner_vaults (email, vault, e2ee_encrypted, mcp_servers_encrypted, updated_by)
+       VALUES (?, ?, '', ?, ?)
+       ON CONFLICT(email, vault) DO UPDATE SET
+         mcp_servers_encrypted = excluded.mcp_servers_encrypted,
+         updated_by = excluded.updated_by,
+         updated_at = datetime('now')`,
+    )
+    .bind(email, vault, encrypted, email)
+    .run();
+
+  // Sync to auth store so orchestrator can fetch at session creation
+  c.executionCtx.waitUntil(
+    authSync(c.env, email, `runner:${vault}:mcp`, mcpServers) ?? Promise.resolve(),
+  );
+
+  c.executionCtx.waitUntil(
+    pushMetrics(c.env, [counter("mcp_key_operations_total", 1, { operation: "set_vault_mcp", service: "runner" })]),
+  );
+
+  return c.json({ ok: true, serverCount: Object.keys(mcpServers).length });
+});
+
+// DELETE /api/runner/config/vaults/:vault/mcp — remove MCP config for a vault
+app.delete("/api/runner/config/vaults/:vault/mcp", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const vault = c.req.param("vault").trim();
+
+  await c.env.PORTAL_DB
+    .prepare("UPDATE runner_vaults SET mcp_servers_encrypted = NULL, updated_at = datetime('now') WHERE email = ? AND vault = ?")
+    .bind(email, vault)
+    .run();
+
+  c.executionCtx.waitUntil(authSync(c.env, email, `runner:${vault}:mcp`, null) ?? Promise.resolve());
+
+  return c.json({ ok: true });
+});
+
 export { app as runnerConfig };
