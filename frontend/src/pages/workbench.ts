@@ -559,7 +559,7 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
     const step1 = h("div", { className: "mb-3" });
     step1.appendChild(h("p", { className: "text-xs text-text-3 mb-2" },
       "Step 1: Copy this command and paste it in your terminal to export cookies."));
-    const exportCmd = "yt-dlp --cookies-from-browser firefox --cookies ~/yt-cookies.txt >/dev/null 2>&1 && grep -E '\\.(youtube|google|googlevideo)\\.com' ~/yt-cookies.txt > ~/yt-cookies-filtered.txt && mv ~/yt-cookies-filtered.txt ~/yt-cookies.txt && echo 'Saved to ~/yt-cookies.txt'";
+    const exportCmd = "yt-dlp --cookies-from-browser firefox --cookies ~/yt-cookies.txt >/dev/null 2>&1 && grep -iE '(youtube|google|googlevideo)\\.com' ~/yt-cookies.txt > ~/yt-cookies-filtered.txt && mv ~/yt-cookies-filtered.txt ~/yt-cookies.txt && echo 'Saved to ~/yt-cookies.txt'";
     const copyBtn = btn("Copy Export Command", {
       size: "sm",
       onClick: () => copyToClipboard(exportCmd, copyBtn),
@@ -600,11 +600,10 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
         }
 
         // Filter to only YouTube/Google cookies to reduce size (~90KB → ~5KB)
-        const ytDomains = [".youtube.com", ".google.com", "youtube.com", "google.com", "accounts.google.com", ".googlevideo.com"];
         const filtered = text.split("\n").filter((line) => {
           if (line.startsWith("#") || line.trim() === "") return true; // keep comments/blanks
-          const domain = line.split("\t")[0];
-          return ytDomains.some((d) => domain === d || domain.endsWith(d));
+          const domain = line.split("\t")[0].toLowerCase();
+          return /(youtube|google|googlevideo)\.com/.test(domain);
         }).join("\n");
 
         const b64 = btoa(filtered);
