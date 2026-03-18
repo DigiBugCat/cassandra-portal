@@ -599,7 +599,15 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
           throw new Error("File does not look like a Netscape cookie file. Make sure you exported with yt-dlp.");
         }
 
-        const b64 = btoa(text);
+        // Filter to only YouTube/Google cookies to reduce size (~90KB → ~5KB)
+        const ytDomains = [".youtube.com", ".google.com", "youtube.com", "google.com", "accounts.google.com", ".googlevideo.com"];
+        const filtered = text.split("\n").filter((line) => {
+          if (line.startsWith("#") || line.trim() === "") return true; // keep comments/blanks
+          const domain = line.split("\t")[0];
+          return ytDomains.some((d) => domain === d || domain.endsWith(d));
+        }).join("\n");
+
+        const b64 = btoa(filtered);
         await api.credentials.set(project.id, service.id, { youtube_cookies: b64 });
 
         uploadStatus.textContent = "Cookies saved!";
