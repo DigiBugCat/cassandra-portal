@@ -80,8 +80,6 @@ export const MCP_SERVICES: McpService[] = [
     category: "data",
     tools: [
       "list_guilds — List Discord servers with enable/disable status",
-      "enable_guild — Enable a guild for MCP access",
-      "disable_guild — Disable a guild from MCP access",
       "list_channels — List channels in an enabled guild",
       "list_dms — List DM conversations",
       "read_messages — Read messages with pagination",

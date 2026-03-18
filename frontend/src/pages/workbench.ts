@@ -3,7 +3,7 @@ import * as api from "../api";
 import { h, btn, input, textarea, field, pill, mono, emptyState, fmtDate, maskKey, copyToClipboard } from "../components/ui";
 import { showModal, hideModal, modalCard } from "../components/modal";
 
-let currentTab: "tools" | "api-keys" | "configuration" | "service-settings" = "tools";
+let currentTab: "tools" | "api-keys" | "configuration" | "service-settings" | "guilds" = "tools";
 let toolAccess: api.ToolAccess | null = null;
 
 export async function renderServiceDetail(root: HTMLElement, project: api.Project, service: api.McpService) {
@@ -116,6 +116,7 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
     { id: "tools", label: "Tools" },
     { id: "api-keys", label: "API Keys" },
     { id: "configuration", label: "Configuration" },
+    ...(service.id === "discord-mcp" ? [{ id: "guilds" as const, label: "Guilds" }] : []),
     ...(service.serviceCredentialsSchema && service.serviceCredentialsSchema.length > 0
       ? [{ id: "service-settings" as const, label: "Service Settings" }]
       : []),
@@ -141,6 +142,8 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
     await renderToolsTab(container, service);
   } else if (currentTab === "api-keys") {
     await renderKeysTab(container, project, service);
+  } else if (currentTab === "guilds") {
+    await renderGuildsTab(container, root, project, service);
   } else if (currentTab === "service-settings") {
     await renderServiceSettingsTab(container, service);
   } else {
@@ -297,6 +300,75 @@ async function renderKeysTab(container: HTMLElement, project: api.Project, servi
   }
   table.appendChild(tbody);
   container.appendChild(table);
+}
+
+async function renderGuildsTab(container: HTMLElement, root: HTMLElement, project: api.Project, service: api.McpService) {
+  const wrapper = h("div", {});
+  const loading = h("div", { className: "text-xs text-text-3" }, "Loading guilds...");
+  wrapper.appendChild(loading);
+  container.appendChild(wrapper);
+
+  try {
+    const data = await api.discordGuilds.list();
+    wrapper.removeChild(loading);
+
+    if (data.guilds.length === 0) {
+      wrapper.appendChild(emptyState("No guilds synced yet. Connect your Discord account in the Configuration tab."));
+      return;
+    }
+
+    wrapper.appendChild(h("p", { className: "text-xs text-text-2 mb-4" },
+      "Enable guilds to make their channels accessible via MCP tools. DMs are always accessible."));
+
+    const list = h("div", { className: "flex flex-col gap-1" });
+
+    for (const guild of data.guilds.sort((a, b) => a.name.localeCompare(b.name))) {
+      const row = h("div", { className: "flex items-center justify-between px-4 py-3 rounded-lg hover:bg-surface-2 transition-colors" });
+
+      const info = h("div", { className: "flex items-center gap-3" });
+      info.appendChild(h("span", { className: "text-sm text-text-0" }, guild.name));
+      info.appendChild(h("span", { className: "text-[10px] text-text-3 font-mono" }, guild.guild_id));
+      row.appendChild(info);
+
+      const toggle = document.createElement("button");
+      toggle.className = `relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
+        guild.enabled ? "bg-accent" : "bg-surface-3"
+      }`;
+      const dot = h("span", {
+        className: `inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+          guild.enabled ? "translate-x-4.5" : "translate-x-0.5"
+        }`,
+      });
+      toggle.appendChild(dot);
+      toggle.addEventListener("click", async () => {
+        toggle.disabled = true;
+        try {
+          if (guild.enabled) {
+            await api.discordGuilds.disable(guild.guild_id);
+            guild.enabled = false;
+          } else {
+            await api.discordGuilds.enable(guild.guild_id);
+            guild.enabled = true;
+          }
+          toggle.className = `relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
+            guild.enabled ? "bg-accent" : "bg-surface-3"
+          }`;
+          dot.className = `inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+            guild.enabled ? "translate-x-4.5" : "translate-x-0.5"
+          }`;
+        } finally {
+          toggle.disabled = false;
+        }
+      });
+      row.appendChild(toggle);
+      list.appendChild(row);
+    }
+
+    wrapper.appendChild(list);
+  } catch (err) {
+    wrapper.removeChild(loading);
+    wrapper.appendChild(h("div", { className: "text-xs text-red-400" }, `Failed to load guilds: ${(err as Error).message}`));
+  }
 }
 
 async function renderConfigTab(container: HTMLElement, project: api.Project, service: api.McpService) {

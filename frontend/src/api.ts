@@ -308,6 +308,22 @@ export const aclAdmin = {
     }),
 };
 
+// ── Discord MCP Guilds ──
+
+export interface DiscordGuild {
+  guild_id: string;
+  name: string;
+  enabled: boolean;
+}
+
+export const discordGuilds = {
+  list: () => request<{ guilds: DiscordGuild[]; enabled: string[] }>("/api/discord-mcp/guilds"),
+  enable: (guildId: string) =>
+    request<{ ok: boolean; enabled: string[] }>(`/api/discord-mcp/guilds/${encodeURIComponent(guildId)}/enable`, { method: "POST" }),
+  disable: (guildId: string) =>
+    request<{ ok: boolean; enabled: string[] }>(`/api/discord-mcp/guilds/${encodeURIComponent(guildId)}/disable`, { method: "POST" }),
+};
+
 // ── User info from CF Access JWT cookie ──
 
 export function getUserEmailFromCookie(): string {

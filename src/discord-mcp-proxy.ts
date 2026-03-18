@@ -68,4 +68,53 @@ app.get("/api/discord-mcp/login/status/:sessionId", async (c) => {
   }
 });
 
+// ── Guild management ──
+
+app.get("/api/discord-mcp/guilds", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  try {
+    const resp = await fetch(`${DISCORD_MCP_URL}/guilds/${encodeURIComponent(email)}`, {
+      headers: { "X-Auth-Secret": c.env.AUTH_SECRET || "" },
+    });
+    if (!resp.ok) return c.json({ guilds: [], enabled: [] });
+    return c.json(await resp.json());
+  } catch {
+    return c.json({ guilds: [], enabled: [] });
+  }
+});
+
+app.post("/api/discord-mcp/guilds/:guildId/enable", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const guildId = c.req.param("guildId");
+  try {
+    const resp = await fetch(
+      `${DISCORD_MCP_URL}/guilds/${encodeURIComponent(email)}/${encodeURIComponent(guildId)}/enable`,
+      { method: "POST", headers: { "X-Auth-Secret": c.env.AUTH_SECRET || "" } },
+    );
+    return c.json(await resp.json());
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+});
+
+app.post("/api/discord-mcp/guilds/:guildId/disable", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const guildId = c.req.param("guildId");
+  try {
+    const resp = await fetch(
+      `${DISCORD_MCP_URL}/guilds/${encodeURIComponent(email)}/${encodeURIComponent(guildId)}/disable`,
+      { method: "POST", headers: { "X-Auth-Secret": c.env.AUTH_SECRET || "" } },
+    );
+    return c.json(await resp.json());
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+});
+
 export { app as discordMcpProxy };
