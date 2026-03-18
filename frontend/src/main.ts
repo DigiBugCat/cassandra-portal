@@ -164,7 +164,9 @@ function render() {
     );
 
     // Config indicator
-    if (svc.credentialsSchema && svc.credentialsSchema.length > 0) {
+    const hasUserCreds = svc.credentialsSchema && svc.credentialsSchema.length > 0;
+    const hasSvcCreds = svc.serviceCredentialsSchema && svc.serviceCredentialsSchema.length > 0;
+    if (hasUserCreds || hasSvcCreds) {
       const configDot = document.createElement("span");
       configDot.className = "w-1.5 h-1.5 rounded-full shrink-0";
       configDot.id = `config-dot-${svc.id}`;
@@ -266,12 +268,22 @@ function makeSidebarItem(
 async function checkConfigStatus() {
   if (!currentProject) return;
   for (const svc of allServices) {
-    if (!svc.credentialsSchema || svc.credentialsSchema.length === 0) continue;
+    const hasUserCreds = svc.credentialsSchema && svc.credentialsSchema.length > 0;
+    const hasSvcCreds = svc.serviceCredentialsSchema && svc.serviceCredentialsSchema.length > 0;
+    if (!hasUserCreds && !hasSvcCreds) continue;
     const dotEl = document.getElementById(`config-dot-${svc.id}`);
     if (!dotEl) continue;
     try {
-      const meta = await api.credentials.get(currentProject.id, svc.id);
-      if (meta.has_credentials) {
+      let configured = false;
+      if (hasUserCreds) {
+        const meta = await api.credentials.get(currentProject.id, svc.id);
+        configured = meta.has_credentials;
+      }
+      if (!configured && hasSvcCreds) {
+        const resp = await api.serviceCredentials.get(svc.id);
+        configured = resp.credentials !== null;
+      }
+      if (configured) {
         dotEl.className = "w-1.5 h-1.5 rounded-full shrink-0 bg-ok";
         dotEl.title = "Configuration set";
       } else {
