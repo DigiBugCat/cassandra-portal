@@ -301,7 +301,7 @@ app.post("/api/projects/:projectId/services/:svc/keys/:key/rotate", async (c) =>
 
 async function authFetch(env: Env, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
-  headers.set("X-Auth-Secret", env.AUTH_SECRET);
+  headers.set("X-Auth-Secret", env.AUTH_SECRET || "");
   if (env.AUTH_SERVICE) {
     return env.AUTH_SERVICE.fetch(new Request(`https://auth-internal${path}`, { ...init, headers }));
   }
