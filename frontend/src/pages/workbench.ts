@@ -325,6 +325,129 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
     : `Optional settings shared across all API keys in this project.`;
   container.appendChild(h("div", { className: "text-xs text-text-2 mb-4" }, explainerText));
 
+  // Discord QR login option
+  if (service.id === "discord-mcp") {
+    const qrSection = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5 mb-4" });
+    const qrTitle = h("div", { className: "text-sm font-medium text-text-0 mb-2" }, "Connect with QR Code");
+    const qrDesc = h("p", { className: "text-xs text-text-3 mb-3" },
+      "Scan with the Discord mobile app to connect instantly. No token copy-paste needed.");
+
+    const qrDisplay = h("div", {
+      className: "flex flex-col items-center gap-3 py-4 hidden",
+      id: "discord-qr-display",
+    });
+    const qrStatus = h("div", {
+      className: "text-xs text-text-3",
+      id: "discord-qr-status",
+    });
+
+    const connectBtn = btn("Connect Discord", {
+      onClick: async () => {
+        connectBtn.disabled = true;
+        connectBtn.textContent = "Connecting...";
+        qrDisplay.classList.remove("hidden");
+        qrStatus.textContent = "Generating QR code...";
+        qrDisplay.innerHTML = "";
+        qrDisplay.appendChild(qrStatus);
+
+        try {
+          // Get an API key to authenticate the WS
+          // Start QR login via portal proxy → controller
+          const startResp = await fetch(`/api/discord-mcp/login/start`, { method: "POST" });
+          if (!startResp.ok) {
+            qrStatus.textContent = `Failed to start login: ${(await startResp.json()).error || startResp.statusText}`;
+            connectBtn.disabled = false;
+            connectBtn.textContent = "Connect Discord";
+            return;
+          }
+          const { session_id, qr_url } = await startResp.json() as { session_id: string; qr_url: string };
+
+          // Display QR code
+          qrDisplay.innerHTML = "";
+          const qrImg = h("img", {
+            src: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qr_url)}`,
+            className: "w-48 h-48 rounded-lg bg-white p-2",
+            alt: "Discord QR Code",
+          }) as HTMLImageElement;
+          qrDisplay.appendChild(qrImg);
+          qrDisplay.appendChild(h("p", { className: "text-xs text-text-2 mt-2" },
+            "Open Discord on your phone \u2192 scan this QR code"));
+
+          // Poll for login completion
+          let polling = true;
+          const pollInterval = setInterval(async () => {
+            if (!polling) return;
+            try {
+              const statusResp = await fetch(`/api/discord-mcp/login/status/${session_id}`);
+              const status = await statusResp.json() as { state: string; username?: string; error?: string };
+
+              if (status.state === "user_pending") {
+                qrDisplay.innerHTML = "";
+                qrDisplay.appendChild(h("div", { className: "text-center" },
+                  h("p", { className: "text-sm text-text-0 font-medium" }, status.username || ""),
+                  h("p", { className: "text-xs text-text-3" }, "Approve the login on your phone..."),
+                ));
+              } else if (status.state === "complete") {
+                polling = false;
+                clearInterval(pollInterval);
+                qrDisplay.innerHTML = "";
+                qrDisplay.appendChild(h("div", { className: "text-center" },
+                  pill("Connected", "ok"),
+                  h("p", { className: "text-xs text-text-2 mt-2" }, "Discord connected! Bridge will start syncing automatically."),
+                ));
+                connectBtn.disabled = false;
+                connectBtn.textContent = "Connect Discord";
+                setTimeout(() => {
+                  const root = container.closest("#main-content")! as HTMLElement;
+                  import("../main").then(({ getState }) => {
+                    const { currentProject, currentService } = getState();
+                    if (currentProject && currentService) renderServiceDetail(root, currentProject, currentService);
+                  });
+                }, 2000);
+              } else if (status.state === "error" || status.state === "timeout") {
+                polling = false;
+                clearInterval(pollInterval);
+                qrDisplay.innerHTML = "";
+                qrDisplay.appendChild(h("p", { className: "text-xs text-red-400" }, status.error || "Login failed. Try again."));
+                connectBtn.disabled = false;
+                connectBtn.textContent = "Connect Discord";
+              }
+            } catch { /* continue polling */ }
+          }, 2000);
+
+          // Stop polling after 3 minutes
+          setTimeout(() => {
+            if (polling) {
+              polling = false;
+              clearInterval(pollInterval);
+              qrDisplay.innerHTML = "";
+              qrDisplay.appendChild(h("p", { className: "text-xs text-red-400" }, "QR code expired. Try again."));
+              connectBtn.disabled = false;
+              connectBtn.textContent = "Connect Discord";
+            }
+          }, 180000);
+        } catch (e) {
+          qrStatus.textContent = (e as Error).message;
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect Discord";
+        }
+      },
+    });
+
+    qrSection.appendChild(qrTitle);
+    qrSection.appendChild(qrDesc);
+    qrSection.appendChild(connectBtn);
+    qrSection.appendChild(qrDisplay);
+    container.appendChild(qrSection);
+
+    // Divider
+    container.appendChild(h("div", { className: "flex items-center gap-3 mb-4" },
+      h("div", { className: "flex-1 border-t border-edge" }),
+      h("span", { className: "text-[10px] text-text-3 uppercase tracking-wider" }, "or paste token manually"),
+      h("div", { className: "flex-1 border-t border-edge" }),
+    ));
+  }
+
   // Inline form
   const form = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
   const inputs: { key: string; input: HTMLInputElement | HTMLTextAreaElement }[] = [];
