@@ -120,6 +120,15 @@ export const credentials = {
     request(`/api/projects/${projectId}/services/${serviceId}/credentials`, { method: "DELETE" }),
 };
 
+// ── Cookie Upload ──
+
+export const cookieUpload = {
+  generateToken: (projectId: string, serviceId: string) =>
+    request<{ token: string; command: string }>(`/api/projects/${projectId}/services/${serviceId}/upload-token`, {
+      method: "POST",
+    }),
+};
+
 // ── Service-Level Credentials (global) ──
 
 export const serviceCredentials = {

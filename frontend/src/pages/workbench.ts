@@ -550,6 +550,48 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
     ));
   }
 
+  // Cookie upload shortcut for yt-mcp
+  if (service.id === "yt-mcp") {
+    const uploadSection = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5 mb-4" });
+    const uploadTitle = h("div", { className: "text-sm font-medium text-text-0 mb-2" }, "Import Cookies from Browser");
+    const uploadDesc = h("p", { className: "text-xs text-text-3 mb-3" },
+      "Generate a one-time command that exports cookies from your browser and uploads them directly. Token expires in 10 minutes.");
+
+    const uploadBtn = btn("Copy Upload Command", {
+      onClick: async () => {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Generating...";
+        try {
+          const resp = await api.cookieUpload.generateToken(project.id, service.id);
+          await copyToClipboard(resp.command, uploadBtn);
+          uploadBtn.textContent = "Copied! Paste in terminal";
+          uploadBtn.classList.add("text-ok");
+          setTimeout(() => {
+            uploadBtn.textContent = "Copy Upload Command";
+            uploadBtn.classList.remove("text-ok");
+            uploadBtn.disabled = false;
+          }, 5000);
+        } catch (e) {
+          uploadBtn.textContent = (e as Error).message;
+          uploadBtn.disabled = false;
+          setTimeout(() => { uploadBtn.textContent = "Copy Upload Command"; }, 3000);
+        }
+      },
+    });
+
+    uploadSection.appendChild(uploadTitle);
+    uploadSection.appendChild(uploadDesc);
+    uploadSection.appendChild(uploadBtn);
+    container.appendChild(uploadSection);
+
+    // Divider
+    container.appendChild(h("div", { className: "flex items-center gap-3 mb-4" },
+      h("div", { className: "flex-1 border-t border-edge" }),
+      h("span", { className: "text-[10px] text-text-3 uppercase tracking-wider" }, "or paste manually"),
+      h("div", { className: "flex-1 border-t border-edge" }),
+    ));
+  }
+
   // Inline form
   const form = h("div", { className: "bg-surface-2 border border-edge rounded-lg p-5" });
   const inputs: { key: string; input: HTMLInputElement | HTMLTextAreaElement }[] = [];

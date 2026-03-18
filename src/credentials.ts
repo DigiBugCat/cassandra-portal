@@ -297,6 +297,105 @@ app.post("/api/projects/:projectId/services/:svc/keys/:key/rotate", async (c) =>
   return c.json({ key: newKey, name: keyRow.name });
 });
 
+// ── Cookie Upload (temp-token based, bypasses CF Access) ──
+
+app.post("/api/projects/:projectId/services/:svc/upload-token", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const { projectId, svc } = c.req.param();
+  const role = await getMemberRole(c.env.PORTAL_DB, projectId, email);
+  if (!role) return c.json({ error: "not found" }, 404);
+
+  const service = MCP_SERVICES.find((s) => s.id === svc);
+  if (!service) return c.json({ error: "unknown service" }, 400);
+
+  const token = `upload_${randomHex(32)}`;
+  const meta = { email, projectId, serviceId: svc, created_at: Date.now() };
+  await c.env.MCP_KEYS.put(token, JSON.stringify(meta), { expirationTtl: 600 });
+
+  const domain = c.env.DOMAIN || "portal.cassandrasedge.com";
+  const cmd = [
+    `yt-dlp --cookies-from-browser firefox --cookies /tmp/yt-cookies.txt 2>/dev/null`,
+    `&& base64 < /tmp/yt-cookies.txt | tr -d '\\n'`,
+    `| curl -sS -X POST 'https://${domain}/api/cookie-upload/${token}'`,
+    `-H 'Content-Type: text/plain' --data-binary @-`,
+    `&& rm -f /tmp/yt-cookies.txt`,
+  ].join(" ");
+
+  return c.json({ token, command: cmd });
+});
+
+app.post("/api/cookie-upload/:token", async (c) => {
+  const { token } = c.req.param();
+
+  if (!token.startsWith("upload_")) {
+    return c.json({ error: "invalid token" }, 400);
+  }
+
+  const raw = await c.env.MCP_KEYS.get(token);
+  if (!raw) {
+    return c.json({ error: "token expired or invalid" }, 401);
+  }
+
+  const meta = JSON.parse(raw) as { email: string; projectId: string; serviceId: string };
+
+  // Read body as the base64-encoded cookie content
+  const b64 = (await c.req.text()).trim();
+  if (!b64) {
+    return c.json({ error: "empty body" }, 400);
+  }
+
+  // Validate it decodes to something that looks like a Netscape cookie file
+  try {
+    const decoded = atob(b64);
+    if (!decoded.includes(".youtube.com") && !decoded.includes("# Netscape HTTP Cookie File") && !decoded.includes("# HTTP Cookie File")) {
+      return c.json({ error: "does not look like a YouTube Netscape cookie file" }, 400);
+    }
+  } catch {
+    return c.json({ error: "invalid base64" }, 400);
+  }
+
+  // Save as credential
+  const sanitized = { youtube_cookies: b64 };
+  const encrypted = await encrypt(JSON.stringify(sanitized), c.env.CREDENTIALS_KEY);
+
+  await c.env.PORTAL_DB
+    .prepare(
+      `INSERT INTO service_credentials (project_id, service_id, credentials_encrypted, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, service_id) DO UPDATE SET
+         credentials_encrypted = excluded.credentials_encrypted,
+         updated_by = excluded.updated_by,
+         updated_at = datetime('now')`,
+    )
+    .bind(meta.projectId, meta.serviceId, encrypted, meta.email, meta.email)
+    .run();
+
+  await syncCredentialsToKV(c.env.PORTAL_DB, c.env.MCP_KEYS, meta.projectId, meta.serviceId, sanitized);
+
+  // Sync to Auth service
+  if (c.env.AUTH_SECRET && (c.env.AUTH_SERVICE || c.env.AUTH_URL)) {
+    const credPath = `/credentials/${encodeURIComponent(meta.email)}/${encodeURIComponent(meta.serviceId)}`;
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Auth-Secret": c.env.AUTH_SECRET },
+      body: JSON.stringify(sanitized),
+    };
+    c.executionCtx.waitUntil(
+      (c.env.AUTH_SERVICE
+        ? c.env.AUTH_SERVICE.fetch(new Request(`https://auth-internal${credPath}`, init))
+        : fetch(`${c.env.AUTH_URL}${credPath}`, init)
+      ).catch(() => {}),
+    );
+  }
+
+  // Delete the one-time token
+  await c.env.MCP_KEYS.delete(token);
+
+  return c.json({ ok: true, message: "YouTube cookies saved successfully" });
+});
+
 // ── Service-Level Credentials (global, admin-managed) ──
 
 async function authFetch(env: Env, path: string, init?: RequestInit): Promise<Response> {
