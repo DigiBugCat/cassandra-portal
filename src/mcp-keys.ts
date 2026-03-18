@@ -96,7 +96,7 @@ export const MCP_SERVICES: McpService[] = [
         label: "Discord Token",
         required: true,
         type: "textarea",
-        hint: "Your Discord user token or bot token. The bridge uses this to connect to Discord and sync messages.",
+        hint: "Bot token from Discord Developer Portal:\n1. Go to https://discord.com/developers/applications\n2. Click \"New Application\" → name it → Create\n3. Go to Bot → click \"Reset Token\" → copy it\n4. Enable MESSAGE CONTENT INTENT under Bot → Privileged Intents\n5. Go to OAuth2 → URL Generator → select \"bot\" scope\n6. Select permissions: Read Messages/View Channels, Read Message History\n7. Open the generated URL to add the bot to your servers",
       },
     ],
   },

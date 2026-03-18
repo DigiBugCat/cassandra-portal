@@ -59,9 +59,15 @@ export function field(label: string, inputEl: HTMLElement, hint?: string): HTMLE
   div.appendChild(lbl);
   div.appendChild(inputEl);
   if (hint) {
-    div.appendChild(h("p", {
+    const hintEl = h("p", {
       className: "mt-1.5 text-[11px] text-text-3 whitespace-pre-line font-mono",
-    }, hint));
+    });
+    // Render URLs as clickable links
+    hintEl.innerHTML = hint.replace(
+      /(https?:\/\/[^\s)]+)/g,
+      '<a href="$1" target="_blank" rel="noopener" class="text-accent underline hover:text-accent/80">$1</a>',
+    );
+    div.appendChild(hintEl);
   }
   return div;
 }
