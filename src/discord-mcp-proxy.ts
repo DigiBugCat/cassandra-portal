@@ -61,6 +61,7 @@ app.get("/api/discord-mcp/login/status/:sessionId", async (c) => {
       return c.json({ state: "error", error: `Controller error: ${resp.status}` });
     }
 
+    // Pass through — if state is "complete" with a token, frontend saves via credential API
     return c.json(await resp.json());
   } catch (err) {
     return c.json({ state: "error", error: `Controller unreachable: ${(err as Error).message}` });

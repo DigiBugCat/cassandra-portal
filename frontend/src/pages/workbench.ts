@@ -377,8 +377,8 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
           const pollInterval = setInterval(async () => {
             if (!polling) return;
             try {
-              const statusResp = await fetch(`/api/discord-mcp/login/status/${session_id}`);
-              const status = await statusResp.json() as { state: string; username?: string; error?: string };
+              const statusResp = await fetch(`/api/discord-mcp/login/status/${session_id}?project_id=${project.id}`);
+              const status = await statusResp.json() as { state: string; username?: string; error?: string; token?: string };
 
               if (status.state === "user_pending") {
                 qrDisplay.innerHTML = "";
@@ -389,6 +389,12 @@ async function renderConfigTab(container: HTMLElement, project: api.Project, ser
               } else if (status.state === "complete") {
                 polling = false;
                 clearInterval(pollInterval);
+                // Save token via portal credential API
+                if (status.token) {
+                  try {
+                    await api.credentials.set(project.id, service.id, { discord_token: status.token });
+                  } catch (e) { console.error("Failed to save credential:", e); }
+                }
                 qrDisplay.innerHTML = "";
                 qrDisplay.appendChild(h("div", { className: "text-center" },
                   pill("Connected", "ok"),
