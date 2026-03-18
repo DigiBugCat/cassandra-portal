@@ -326,8 +326,22 @@ async function renderGuildsTab(container: HTMLElement, root: HTMLElement, projec
       const row = h("div", { className: "flex items-center justify-between px-4 py-3 rounded-lg hover:bg-surface-2 transition-colors" });
 
       const info = h("div", { className: "flex items-center gap-3" });
-      info.appendChild(h("span", { className: "text-sm text-text-0" }, guild.name));
-      info.appendChild(h("span", { className: "text-[10px] text-text-3 font-mono" }, guild.guild_id));
+      if (guild.icon_url) {
+        const icon = document.createElement("img");
+        icon.src = guild.icon_url;
+        icon.alt = guild.name;
+        icon.className = "w-8 h-8 rounded-full object-cover";
+        icon.loading = "lazy";
+        info.appendChild(icon);
+      } else {
+        const placeholder = h("div", { className: "w-8 h-8 rounded-full bg-surface-3 flex items-center justify-center text-[11px] text-text-3 font-medium" },
+          guild.name.charAt(0).toUpperCase());
+        info.appendChild(placeholder);
+      }
+      const nameCol = h("div", { className: "flex flex-col" });
+      nameCol.appendChild(h("span", { className: "text-sm text-text-0" }, guild.name));
+      nameCol.appendChild(h("span", { className: "text-[10px] text-text-3 font-mono" }, guild.guild_id));
+      info.appendChild(nameCol);
       row.appendChild(info);
 
       const toggle = document.createElement("button");

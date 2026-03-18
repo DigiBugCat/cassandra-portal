@@ -313,6 +313,7 @@ export const aclAdmin = {
 export interface DiscordGuild {
   guild_id: string;
   name: string;
+  icon_url: string | null;
   enabled: boolean;
 }
 
