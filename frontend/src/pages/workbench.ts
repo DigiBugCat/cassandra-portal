@@ -47,11 +47,13 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
 
   const domain = await api.getDomain();
 
+  const mcpUrl = `https://${service.id}.${domain}/mcp`;
+
   // Claude Code CLI
   const codeLabel = h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Claude Code (CLI)");
   setup.appendChild(codeLabel);
 
-  const codeCmd = `claude mcp add --transport http -H "Authorization: Bearer <your-key>" ${service.id} https://${service.id}.${domain}/mcp`;
+  const codeCmd = `claude mcp add --transport http ${service.id} ${mcpUrl}`;
   const codeBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 font-mono text-[11px] text-accent break-all leading-relaxed relative mb-4" });
   codeBox.appendChild(document.createTextNode(codeCmd));
   const codeCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(codeCmd, codeCopy) });
@@ -61,7 +63,6 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
 
   // Claude.ai
   setup.appendChild(h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Claude.ai (Web)"));
-  const aiUrl = `https://${service.id}.${domain}/mcp`;
   const aiBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 text-[11.5px] text-text-1 leading-relaxed mb-4" });
   const aiStep1 = h("div", { className: "flex items-baseline gap-2 mb-1" });
   aiStep1.appendChild(h("span", { className: "text-text-3 font-medium shrink-0" }, "1."));
@@ -72,8 +73,8 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
   const aiStep2 = h("div", { className: "flex items-center gap-2 mb-1" });
   aiStep2.appendChild(h("span", { className: "text-text-3 font-medium shrink-0" }, "2."));
   aiStep2.appendChild(h("span", {}, "Enter URL:"));
-  aiStep2.appendChild(h("code", { className: "font-mono text-accent bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]" }, aiUrl));
-  const aiUrlCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(aiUrl, aiUrlCopy) });
+  aiStep2.appendChild(h("code", { className: "font-mono text-accent bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]" }, mcpUrl));
+  const aiUrlCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(mcpUrl, aiUrlCopy) });
   aiStep2.appendChild(aiUrlCopy);
   aiBox.appendChild(aiStep2);
   const aiStep3 = h("div", { className: "flex items-baseline gap-2" });
@@ -82,10 +83,8 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
   aiBox.appendChild(aiStep3);
   setup.appendChild(aiBox);
 
-  // Generic MCP client
+  // Other MCP Clients
   setup.appendChild(h("div", { className: "text-[10px] font-medium text-text-2 uppercase tracking-wider mb-1.5" }, "Other MCP Clients"));
-  const mcpUrl = `https://${service.id}.${domain}/mcp`;
-  const headerVal = "Authorization: Bearer <your-key>";
   const genericBox = h("div", { className: "bg-surface-0 border border-edge rounded-md p-3 text-[11.5px] text-text-1 leading-relaxed" });
   // URL row
   const urlRow = h("div", { className: "flex items-center gap-2 mb-1.5" });
@@ -94,18 +93,16 @@ export async function renderServiceDetail(root: HTMLElement, project: api.Projec
   const urlCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(mcpUrl, urlCopy) });
   urlRow.appendChild(urlCopy);
   genericBox.appendChild(urlRow);
-  // Header row
-  const headerRow = h("div", { className: "flex items-center gap-2 mb-1.5" });
-  headerRow.appendChild(h("span", { className: "text-text-3 font-medium shrink-0 w-16" }, "Header"));
-  headerRow.appendChild(h("code", { className: "font-mono text-text-1 bg-surface-3 px-1.5 py-0.5 rounded text-[10.5px]" }, headerVal));
-  const headerCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(headerVal, headerCopy) });
-  headerRow.appendChild(headerCopy);
-  genericBox.appendChild(headerRow);
   // Transport row
-  const transportRow = h("div", { className: "flex items-center gap-2" });
+  const transportRow = h("div", { className: "flex items-center gap-2 mb-1.5" });
   transportRow.appendChild(h("span", { className: "text-text-3 font-medium shrink-0 w-16" }, "Transport"));
   transportRow.appendChild(h("span", {}, "MCP (HTTP)"));
   genericBox.appendChild(transportRow);
+  // Auth note
+  const authRow = h("div", { className: "flex items-baseline gap-2" });
+  authRow.appendChild(h("span", { className: "text-text-3 font-medium shrink-0 w-16" }, "Auth"));
+  authRow.appendChild(h("span", {}, "OAuth (automatic) or API key from the API Keys tab"));
+  genericBox.appendChild(authRow);
   setup.appendChild(genericBox);
 
   container.appendChild(setup);
@@ -818,11 +815,11 @@ async function showKeyCreatedModal(container: HTMLElement, created: api.CreatedK
   keyBox.appendChild(copyBtn);
   body.appendChild(keyBox);
 
-  // CLI command
+  // CLI command — with API key for clients that don't support OAuth
   const domain = await api.getDomain();
-  const cliCmd = `claude mcp add --transport http -H "Authorization: Bearer ${created.key}" ${service.id} https://${service.id}.${domain}/mcp`;
-  const cliLabel = h("div", { className: "text-[10px] font-medium text-text-3 uppercase tracking-wider mb-1.5" }, "Claude Code (CLI)");
+  const cliLabel = h("div", { className: "text-[10px] font-medium text-text-3 uppercase tracking-wider mb-1.5 mt-3" }, "Use with API key (for non-OAuth clients)");
   body.appendChild(cliLabel);
+  const cliCmd = `claude mcp add --transport http -H "Authorization: Bearer ${created.key}" ${service.id} https://${service.id}.${domain}/mcp`;
   const cliBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11px] text-accent break-all leading-relaxed relative" });
   cliBox.appendChild(h("span", {}, cliCmd));
   const cliCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(cliCmd, cliCopy) });
