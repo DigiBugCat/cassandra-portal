@@ -107,10 +107,38 @@ export const MCP_SERVICES: McpService[] = [
   },
 ];
 
+// In-cluster health check URLs for each service
+const SERVICE_HEALTH_URLS: Record<string, string> = {
+  "yt-mcp": "http://yt-mcp.production.svc.cluster.local:3003/healthz",
+  "discord-mcp": "http://discord-mcp.production.svc.cluster.local:3003/healthz",
+  "runner": "http://claude-orchestrator.production.svc.cluster.local:8080/health",
+  "market-research": "http://market-research.production.svc.cluster.local:3003/healthz",
+};
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.get("/api/mcp-services", (c) => {
   return c.json(MCP_SERVICES);
+});
+
+app.get("/api/mcp-services/health", async (c) => {
+  const results: Record<string, boolean> = {};
+  await Promise.all(
+    MCP_SERVICES.map(async (svc) => {
+      const url = SERVICE_HEALTH_URLS[svc.id];
+      if (!url) {
+        results[svc.id] = false;
+        return;
+      }
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        results[svc.id] = resp.ok;
+      } catch {
+        results[svc.id] = false;
+      }
+    }),
+  );
+  return c.json(results);
 });
 
 export { app as mcpKeys };

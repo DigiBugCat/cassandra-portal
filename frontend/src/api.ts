@@ -97,6 +97,7 @@ export interface McpService {
 
 export const services = {
   list: () => request<McpService[]>("/api/mcp-services"),
+  health: () => request<Record<string, boolean>>("/api/mcp-services/health"),
 };
 
 // ── Credentials ──

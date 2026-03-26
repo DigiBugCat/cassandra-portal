@@ -157,10 +157,11 @@ function render() {
     const isActive = selectedView?.type === "mcp" && selectedView.service.id === svc.id;
     const item = makeSidebarItem(
       svc.name,
-      svc.status === "active",
+      false, // start grey, health check will update
       isActive,
       String(svc.tools?.length || 0),
       () => navigate({ type: "mcp", service: svc }),
+      `status-dot-${svc.id}`,
     );
 
     // Config indicator
@@ -183,10 +184,11 @@ function render() {
   sidebarBody.appendChild(
     makeSidebarItem(
       "Agent Runner",
-      true,
+      false,
       isRunnerActive,
       undefined,
       () => navigate({ type: "runner" }),
+      "status-dot-runner",
     ),
   );
 
@@ -224,6 +226,9 @@ function render() {
   } else if (selectedView?.type === "acl") {
     renderAclPage(content);
   }
+
+  // Fetch live health status for all services
+  checkServiceHealth();
 }
 
 function makeSectionLabel(text: string): HTMLElement {
@@ -240,6 +245,7 @@ function makeSidebarItem(
   isSelected: boolean,
   badge?: string,
   onClick?: () => void,
+  statusDotId?: string,
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = `flex items-center gap-2 px-2.5 py-[7px] rounded-md text-[12px] transition-all cursor-pointer ${
@@ -250,6 +256,7 @@ function makeSidebarItem(
 
   const statusDot = document.createElement("span");
   statusDot.className = `w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-ok" : "bg-text-3"}`;
+  if (statusDotId) statusDot.id = statusDotId;
   item.appendChild(statusDot);
 
   item.appendChild(document.createTextNode(name));
@@ -294,6 +301,20 @@ async function checkConfigStatus() {
       dotEl.className = "w-1.5 h-1.5 rounded-full shrink-0 bg-text-3";
       dotEl.title = "Unknown";
     }
+  }
+}
+
+async function checkServiceHealth() {
+  try {
+    const health = await api.services.health();
+    for (const [id, online] of Object.entries(health)) {
+      const dot = document.getElementById(`status-dot-${id}`);
+      if (!dot) continue;
+      dot.className = `w-1.5 h-1.5 rounded-full shrink-0 ${online ? "bg-ok" : "bg-danger"}`;
+      dot.title = online ? "Online" : "Offline";
+    }
+  } catch {
+    // leave dots grey on failure
   }
 }
 
