@@ -39,7 +39,6 @@ export const MCP_SERVICES: McpService[] = [
       "read_transcript — Read a transcript by ID",
       "yt_search — Search YouTube for videos",
       "list_channel_videos — List videos from a YouTube channel",
-      "get_metadata — Get video metadata (works with any yt-dlp-supported URL)",
       "get_comments — Get video comments",
       "watch_later_sync — Sync Watch Later playlist",
       "watch_later_status — Check Watch Later sync status",
