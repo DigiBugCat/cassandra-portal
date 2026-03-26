@@ -19,6 +19,11 @@ export function getUserEmail(request: Request): string {
   } catch {
     // ignore
   }
+
+  // Fallback for CF Access bypass (IP bypass skips identity injection)
+  const fallback = process.env.DEFAULT_USER_EMAIL;
+  if (fallback) return fallback;
+
   return "";
 }
 

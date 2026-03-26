@@ -2,24 +2,25 @@
   "name": "cassandra-portal",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc && tsc-alias",
+    "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run src/__tests__/mcp-keys.test.ts src/__tests__/runner-proxy.test.ts",
-    "test:integration": "vitest run src/__tests__/portal.integration.test.ts",
-    "test:coverage": "vitest run --coverage"
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "cassandra-observability": "github:DigiBugCat/cassandra-observability",
+    "@hono/node-server": "^1.13.0",
+    "better-sqlite3": "^11.0.0",
     "hono": "^4.12.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260227.0",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
     "typescript": "5.9.3",
-    "vitest": "^4.0.18",
-    "wrangler": "^4.67.0"
+    "vitest": "^4.0.18"
   }
 }

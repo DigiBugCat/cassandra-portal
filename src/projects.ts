@@ -8,18 +8,16 @@ import {
   listUserProjects,
 } from "./db";
 import { getUserEmail } from "./auth";
+import { authFetch } from "./env";
+import type { Env } from "./env";
 
 const app = new Hono<{ Bindings: Env }>();
-
-// ── Projects ──
 
 app.get("/api/projects", async (c) => {
   const email = getUserEmail(c.req.raw);
   if (!email) return c.json({ error: "authenticated user email is required" }, 401);
 
-  // Ensure personal project exists
   await ensurePersonalProject(c.env.PORTAL_DB, email);
-
   const projects = await listUserProjects(c.env.PORTAL_DB, email);
   return c.json(projects);
 });
@@ -35,7 +33,6 @@ app.post("/api/projects", async (c) => {
   const kind = body.kind === "personal" ? "personal" : "shared";
 
   if (kind === "personal") {
-    // Can only have one personal project
     const existing = await c.env.PORTAL_DB
       .prepare("SELECT id FROM projects WHERE owner_email = ? AND kind = 'personal'")
       .bind(email)
@@ -88,24 +85,19 @@ app.delete("/api/projects/:id", async (c) => {
 
   const role = await getMemberRole(c.env.PORTAL_DB, projectId, email);
   if (role !== "owner") return c.json({ error: "only the owner can delete a project" }, 403);
+  if (project.kind === "personal") return c.json({ error: "cannot delete personal project" }, 400);
 
-  if (project.kind === "personal") {
-    return c.json({ error: "cannot delete personal project" }, 400);
-  }
-
-  // Delete all KV keys for this project
+  // Delete MCP keys from auth service
   const { results: keys } = await c.env.PORTAL_DB
     .prepare("SELECT key_id FROM mcp_keys WHERE project_id = ?")
     .bind(projectId)
     .all<{ key_id: string }>();
 
   for (const key of keys) {
-    await c.env.MCP_KEYS.delete(key.key_id);
+    try { await authFetch(`/keys/${key.key_id}`, { method: "DELETE" }); } catch { /* logged by authFetch */ }
   }
 
-  // CASCADE handles D1 cleanup
   await c.env.PORTAL_DB.prepare("DELETE FROM projects WHERE id = ?").bind(projectId).run();
-
   return c.json({ ok: true });
 });
 
@@ -133,20 +125,16 @@ app.post("/api/projects/:id/members", async (c) => {
   if (role !== "owner") return c.json({ error: "only the owner can add members" }, 403);
 
   const project = await getProject(c.env.PORTAL_DB, projectId);
-  if (project?.kind === "personal") {
-    return c.json({ error: "cannot add members to personal project" }, 400);
-  }
+  if (project?.kind === "personal") return c.json({ error: "cannot add members to personal project" }, 400);
 
   const body = await c.req.json<{ email?: string; role?: string }>();
   const memberEmail = body.email?.trim().toLowerCase();
   if (!memberEmail) return c.json({ error: "email is required" }, 400);
 
-  const memberRole = body.role === "owner" ? "owner" : "member";
-
-  // Check if already a member
   const existing = await getMemberRole(c.env.PORTAL_DB, projectId, memberEmail);
   if (existing) return c.json({ error: "user is already a member" }, 409);
 
+  const memberRole = body.role === "owner" ? "owner" : "member";
   await c.env.PORTAL_DB
     .prepare("INSERT INTO project_members (project_id, email, role) VALUES (?, ?, ?)")
     .bind(projectId, memberEmail, memberRole)
@@ -161,14 +149,12 @@ app.patch("/api/projects/:id/members/:email", async (c) => {
 
   const projectId = c.req.param("id");
   const targetEmail = c.req.param("email");
-
   const role = await getMemberRole(c.env.PORTAL_DB, projectId, email);
   if (!role) return c.json({ error: "not found" }, 404);
   if (role !== "owner") return c.json({ error: "only the owner can change roles" }, 403);
 
   const body = await c.req.json<{ role?: string }>();
   const newRole = body.role === "owner" ? "owner" : "member";
-
   await c.env.PORTAL_DB
     .prepare("UPDATE project_members SET role = ? WHERE project_id = ? AND email = ?")
     .bind(newRole, projectId, targetEmail)
@@ -183,14 +169,10 @@ app.delete("/api/projects/:id/members/:email", async (c) => {
 
   const projectId = c.req.param("id");
   const targetEmail = c.req.param("email");
-
   const role = await getMemberRole(c.env.PORTAL_DB, projectId, email);
   if (!role) return c.json({ error: "not found" }, 404);
   if (role !== "owner") return c.json({ error: "only the owner can remove members" }, 403);
-
-  if (targetEmail === email) {
-    return c.json({ error: "cannot remove yourself" }, 400);
-  }
+  if (targetEmail === email) return c.json({ error: "cannot remove yourself" }, 400);
 
   await c.env.PORTAL_DB
     .prepare("DELETE FROM project_members WHERE project_id = ? AND email = ?")

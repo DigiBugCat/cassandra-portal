@@ -2,93 +2,78 @@
 
 ## What This Is
 
-CF Worker that serves the Cassandra dashboard UI (Workbench). Manages:
+FastAPI service that serves the Cassandra dashboard UI (Workbench). Runs in k8s behind CF Tunnel. Manages:
 - **Projects** — organizational boundaries for grouping service configs (personal + shared, with membership)
-- **MCP keys** — project-scoped API keys for MCP services, stored in both D1 (metadata) and KV (runtime auth)
-- **Service credentials** — per-project credentials (e.g. Pushover), encrypted in D1, synced to KV
-- **Runner keys** — tenant API keys proxied to the orchestrator (separate from projects)
+- **MCP keys** — project-scoped API keys for MCP services, stored in local SQLite (metadata) and synced to auth service (runtime auth)
+- **Service credentials** — per-project credentials (e.g. Pushover), encrypted in SQLite, synced to auth service
+- **Runner config** — Obsidian auth tokens, per-vault E2EE passwords, MCP server configs
+- **Runner keys** — tenant API keys proxied to the orchestrator
 
-Protected by CF Access (Google OAuth). User identity from `Cf-Access-Authenticated-User-Email` header or CF_Authorization JWT.
+User identity from CF Access headers (`Cf-Access-Authenticated-User-Email` or `CF_Authorization` JWT) passed through the CF Tunnel.
 
 ## Repo Structure
 
 ```
 cassandra-portal/
-├── src/
-│   ├── index.ts          # Hono router, static asset serving, entrypoint
-│   ├── auth.ts           # Shared getUserEmail() from CF Access
-│   ├── db.ts             # D1 helpers, AES-GCM encryption, project queries
-│   ├── mcp-keys.ts       # Legacy MCP key CRUD + MCP_SERVICES registry
-│   ├── projects.ts       # Project + member CRUD
-│   ├── credentials.ts    # Service credential CRUD + project-scoped key CRUD + KV sync
-│   ├── runner-proxy.ts   # Runner tenant proxy to orchestrator admin API
-│   ├── migrations/       # D1 SQL migrations
-│   └── __tests__/
-├── frontend/             # Vite + Tailwind v4 + vanilla TS
-│   ├── index.html
+├── service/                       # FastAPI backend
+│   ├── src/cassandra_portal/
+│   │   ├── app.py                 # FastAPI app, lifespan, PortalState
+│   │   ├── auth.py                # get_user_email from CF Access headers
+│   │   ├── crypto.py              # Fernet encrypt/decrypt for credentials
+│   │   ├── db.py                  # Async SQLite (WAL mode)
+│   │   ├── queries.py             # Shared DB query helpers
+│   │   ├── services.py            # MCP_SERVICES registry + credential schemas
+│   │   ├── main.py                # CLI entrypoint (uvicorn)
+│   │   └── routes/
+│   │       ├── admin.py           # ACL admin proxy → auth service
+│   │       ├── keys.py            # MCP keys + credentials + ACL tool check
+│   │       ├── projects.py        # Project + member CRUD
+│   │       ├── proxy.py           # Discord MCP proxy
+│   │       └── runner.py          # Runner config + vaults + tenant proxy
+│   ├── tests/
+│   │   └── test_app.py
+│   ├── schema.sql                 # SQLite schema
+│   └── pyproject.toml
+├── frontend/                      # Vite + Tailwind v4 + vanilla TS SPA
 │   ├── src/
-│   │   ├── main.ts       # SPA router
-│   │   ├── style.css     # @import "tailwindcss" + @theme
-│   │   ├── api.ts        # Fetch wrappers for all API routes
-│   │   ├── pages/        # dashboard, workbench, runner-keys
-│   │   └── components/   # modal, ui primitives
-│   ├── vite.config.ts
+│   │   ├── main.ts                # SPA router
+│   │   ├── api.ts                 # Fetch wrappers for all API routes
+│   │   ├── style.css              # @import "tailwindcss" + @theme
+│   │   ├── pages/                 # dashboard, workbench, runner-keys
+│   │   └── components/            # modal, ui primitives
 │   └── package.json
-├── infra/modules/portal-edge/
-├── wrangler.jsonc.example
-├── package.json
-└── tsconfig.json
+├── infra/modules/portal-edge/     # Terraform (needs update for k8s)
+└── CLAUDE.md
 ```
 
-## Deploy
+## Env Vars
 
-Worker auto-deploys on push to main via Woodpecker CI (`.woodpecker.yaml`). Frontend is built with Vite, then served via Workers Static Assets. D1 migrations run before deploy.
-
-### Infra (one-time, from cassandra-infra)
-
-D1 database is provisioned by Terraform alongside KV, DNS, and CF Access:
-
-```bash
-cd cassandra-infra/environments/production/portal
-source ../../.env
-tofu init -backend-config=production.s3.tfbackend
-tofu apply
-# Outputs: mcp_keys_kv_namespace_id, portal_db_id
-```
-
-After `tofu apply`, set the new D1 database ID as a Woodpecker secret (`portal_d1_database_id`) on the repo.
-
-### Wrangler secrets (one-time, then on rotation)
-
-```bash
-cd cassandra-portal
-# Generate a CREDENTIALS_KEY: openssl rand -base64 32
-wrangler secret put CREDENTIALS_KEY
-```
-
-### Manual deploy (if needed)
-
-```bash
-npm install
-cd frontend && npm install && npm run build && cd ..
-npx wrangler d1 execute cassandra-portal --remote --file=src/migrations/001_initial.sql
-npx wrangler deploy
-```
-
-## Secrets (via wrangler secret put)
-
+- `DB_PATH` — SQLite database path (default: `/data/portal.db`)
+- `AUTH_URL` — Auth service URL (default: `http://auth:8080`)
+- `AUTH_SECRET` — Shared secret for auth service calls
+- `CREDENTIALS_KEY` — Fernet key for encrypting credentials at rest
 - `RUNNER_URL` — Runner orchestrator URL
 - `RUNNER_ADMIN_KEY` — Admin API key for runner /tenants routes
 - `DOMAIN` — Root domain for link generation
-- `CREDENTIALS_KEY` — AES-256 key for encrypting service credentials in D1
-- `VM_PUSH_URL` — VictoriaMetrics push endpoint for Worker metrics
-- `VM_PUSH_CLIENT_ID` — CF Access service token client ID
-- `VM_PUSH_CLIENT_SECRET` — CF Access service token client secret
+- `DISCORD_MCP_URL` — Discord MCP controller URL
+- `HOST` / `PORT` — bind address (default: `0.0.0.0:8080`)
 
-## Bindings
+## Run
 
-- `MCP_KEYS` — Shared KV namespace for MCP API keys (runtime auth)
-- `PORTAL_DB` — D1 database for projects, members, credentials, key metadata
+```bash
+cd service
+uv run cassandra-portal          # or: uv run uvicorn cassandra_portal.app:create_app --factory
+uv run pytest -v                 # tests
+```
+
+## Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev                      # Vite dev server (proxies /api to backend)
+npm run build                    # Build to dist/ for static serving
+```
 
 ## Tailwind CSS v4 Rules
 
@@ -98,21 +83,4 @@ This project uses Tailwind CSS v4 with Vite. Follow these rules strictly:
 - Theme config via `@theme` directive in CSS — NO `tailwind.config.js`
 - Vite plugin: `@tailwindcss/vite` — NO `autoprefixer` or `postcss-import`
 - Use slash notation for opacity: `bg-black/50` — NOT `bg-opacity-*`
-- Renamed utilities: `shadow-xs` (was `shadow-sm`), `rounded-xs` (was `rounded-sm`), `outline-hidden` (was `outline-none`)
 - Default border color is `currentColor` (was `gray-200`)
-- Default ring width is 1px (was 3px)
-- CSS variables in arbitrary values: `bg-(--my-var)` — NOT `bg-[--my-var]`
-- Custom utilities via `@utility` directive, custom variants via `@variant`
-- Buttons do NOT get `cursor-pointer` by default — add explicitly
-- Container queries are built-in: `@container`, `@sm:`, `@md:` variants
-- Dynamic spacing: every multiple of `--spacing` works (e.g., `mt-21`)
-- `@import "tailwindcss"` instead of old `@tailwind` directives
-- PostCSS plugin is `@tailwindcss/postcss`, CLI is `@tailwindcss/cli`
-- Hover styles only apply on devices that support hover (`@media (hover: hover)`)
-
-## Observability
-
-Pushes metrics to VictoriaMetrics on every request via `cassandra-observability`:
-- `mcp_requests_total` — request count by status/path
-- `mcp_request_duration_ms_total` — latency
-- `mcp_key_operations_total` — key create/delete/set_credentials by service
