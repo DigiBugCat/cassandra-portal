@@ -815,7 +815,8 @@ async function showKeyCreatedModal(container: HTMLElement, created: api.CreatedK
   const cliLabel = h("div", { className: "text-[10px] font-medium text-text-3 uppercase tracking-wider mb-1.5 mt-3" }, "Use with API key (for non-OAuth clients)");
   body.appendChild(cliLabel);
   const subdomain = service.subdomain || service.id;
-  const cliCmd = `claude mcp add ${service.id} https://${subdomain}.${domain}/sse --transport sse -H "Authorization: Bearer ${created.key}"`;
+  const jsonConfig = JSON.stringify({ type: "http", url: `https://${subdomain}.${domain}/mcp`, headers: { Authorization: `Bearer ${created.key}` } });
+  const cliCmd = `claude mcp add-json ${service.id} '${jsonConfig}'`;
   const cliBox = h("div", { className: "bg-surface-3 border border-edge rounded-md p-3 font-mono text-[11px] text-accent break-all leading-relaxed relative" });
   cliBox.appendChild(h("span", {}, cliCmd));
   const cliCopy = btn("Copy", { variant: "outline", size: "sm", onClick: () => copyToClipboard(cliCmd, cliCopy) });
