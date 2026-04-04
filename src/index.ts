@@ -74,6 +74,37 @@ app.get("/api/acl/:service/tools", async (c) => {
   return c.json(results);
 });
 
+// ── Extension API (used by cookie-sync Chrome extension) ──
+
+// Who am I? Returns email from CF Access.
+app.get("/api/extension/whoami", (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "not authenticated" }, 401);
+  return c.json({ email });
+});
+
+// Push per-user credentials for a service. Proxies to auth service with X-Auth-Secret.
+app.put("/api/extension/credentials/:service", async (c) => {
+  const email = getUserEmail(c.req.raw);
+  if (!email) return c.json({ error: "authenticated user email is required" }, 401);
+
+  const service = c.req.param("service");
+  const body = await c.req.json<Record<string, string>>();
+
+  const resp = await authFetch(`/credentials/${encodeURIComponent(email)}/${encodeURIComponent(service)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    return c.json({ error: "auth service error", detail: text }, resp.status as any);
+  }
+
+  return c.json({ ok: true, email, service });
+});
+
 // Mount API routes
 app.route("/", mcpKeys);
 app.route("/", projects);
