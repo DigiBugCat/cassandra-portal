@@ -157,6 +157,17 @@ export const MCP_SERVICES: McpService[] = [
       "create_project_doc — Create a new knowledge doc",
     ],
   },
+  {
+    id: "gateway",
+    name: "Gateway",
+    description: "Universal Execution Gateway",
+    status: "active",
+    category: "tools",
+    subdomain: "gateway",
+    tools: [
+      "execute — Run Python code with call_tool() to invoke any service tool",
+    ],
+  },
 ];
 
 // In-cluster health check URLs for each service
@@ -168,6 +179,7 @@ const SERVICE_HEALTH_URLS: Record<string, string> = {
   "market-research": "http://market-research.production.svc.cluster.local:3003/healthz",
   "reddit-mcp": "http://reddit-mcp.production.svc.cluster.local:3004/healthz",
   "claudeai-mcp": "http://claudeai-mcp.production.svc.cluster.local:3003/healthz",
+  "gateway": "http://gateway.production.svc.cluster.local:3000/healthz",
 };
 
 const app = new Hono<{ Bindings: Env }>();
