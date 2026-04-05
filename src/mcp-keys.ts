@@ -43,15 +43,6 @@ export const MCP_SERVICES: McpService[] = [
       "watch_later_sync — Sync Watch Later playlist",
       "watch_later_status — Check Watch Later sync status",
     ],
-    credentialsSchema: [
-      {
-        key: "youtube_cookies",
-        label: "YouTube Cookies (base64)",
-        required: false,
-        type: "textarea",
-        hint: "Run: yt-dlp --cookies-from-browser firefox --cookies /tmp/yt-cookies.txt 2>/dev/null && grep -iE '(youtube|google|googlevideo)\\.com' /tmp/yt-cookies.txt | base64",
-      },
-    ],
   },
   {
     id: "pushover",
@@ -110,18 +101,6 @@ export const MCP_SERVICES: McpService[] = [
     credentialsSchema: [
       { key: "x_bearer_token", label: "X API v2 Bearer Token", required: false },
       { key: "xai_api_key", label: "xAI/Grok API Key", required: false },
-      {
-        key: "twitter_auth_token",
-        label: "Twitter Auth Token (cookie)",
-        required: false,
-        hint: "Browser cookie 'auth_token' — needed for personal tools (feed, bookmarks, etc.)",
-      },
-      {
-        key: "twitter_ct0",
-        label: "Twitter ct0 (cookie)",
-        required: false,
-        hint: "Browser cookie 'ct0' — needed alongside auth_token",
-      },
     ],
   },
   {
@@ -180,15 +159,6 @@ export const MCP_SERVICES: McpService[] = [
       "list_project_docs — List knowledge docs in a project",
       "get_project_doc — Get full doc content",
       "create_project_doc — Create a new knowledge doc",
-    ],
-    credentialsSchema: [
-      {
-        key: "claude_cookies",
-        label: "Claude.ai Cookies (base64)",
-        required: false,
-        type: "textarea",
-        hint: "Auto-synced by the Cassandra Platform Chrome extension. No manual entry needed.",
-      },
     ],
   },
 ];
