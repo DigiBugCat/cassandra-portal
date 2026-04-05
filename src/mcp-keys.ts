@@ -162,6 +162,35 @@ export const MCP_SERVICES: McpService[] = [
       "get_comment_thread — Drill into a specific comment chain",
     ],
   },
+  {
+    id: "claudeai-mcp",
+    name: "claude.ai",
+    description: "Claude.ai Conversations & Projects",
+    status: "active",
+    category: "tools",
+    subdomain: "claude-ai",
+    tools: [
+      "list_conversations — List recent claude.ai conversations",
+      "get_conversation — Get a conversation with all messages",
+      "search_conversations — Search conversations by name or summary",
+      "send_message — Send a message to an existing conversation",
+      "create_conversation — Create a new conversation",
+      "list_projects — List all projects",
+      "get_project — Get project details and system prompt",
+      "list_project_docs — List knowledge docs in a project",
+      "get_project_doc — Get full doc content",
+      "create_project_doc — Create a new knowledge doc",
+    ],
+    credentialsSchema: [
+      {
+        key: "claude_cookies",
+        label: "Claude.ai Cookies (base64)",
+        required: false,
+        type: "textarea",
+        hint: "Auto-synced by the Cassandra Platform Chrome extension. No manual entry needed.",
+      },
+    ],
+  },
 ];
 
 // In-cluster health check URLs for each service
@@ -172,6 +201,7 @@ const SERVICE_HEALTH_URLS: Record<string, string> = {
   "runner": "http://claude-orchestrator.production.svc.cluster.local:8080/health",
   "market-research": "http://market-research.production.svc.cluster.local:3003/healthz",
   "reddit-mcp": "http://reddit-mcp.production.svc.cluster.local:3004/healthz",
+  "claudeai-mcp": "http://claudeai-mcp.production.svc.cluster.local:3003/healthz",
 };
 
 const app = new Hono<{ Bindings: Env }>();
