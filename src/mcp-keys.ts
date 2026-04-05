@@ -98,10 +98,6 @@ export const MCP_SERVICES: McpService[] = [
       "my_profile — Your Twitter profile info",
       "get_article — Read a Twitter Article (long-form)",
     ],
-    credentialsSchema: [
-      { key: "x_bearer_token", label: "X API v2 Bearer Token", required: false },
-      { key: "xai_api_key", label: "xAI/Grok API Key", required: false },
-    ],
   },
   {
     id: "runner",
